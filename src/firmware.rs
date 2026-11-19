@@ -25,7 +25,7 @@ use crate::tx::HostTxDriver;
 use crate::wsm::{
     encode_join_complete_indication, encode_multi_tx_confirm_header,
     encode_scan_complete_indication, encode_set_pm_complete_indication,
-    encode_switch_channel_indication, encode_tx_confirm_entry, encode_xr819_tx_confirm_details,
+    encode_switch_channel_indication, encode_tx_confirm, encode_tx_confirm_entry,
 };
 use crate::{beacon_loss, command, scan, tx, vif};
 
@@ -457,8 +457,15 @@ impl Firmware {
         if let Some((packet_id, status, tx_rate, ack_failures)) = self.pending_tx_confirmation
             && !host_request_waiting
             && self.transport.publish_with(|output| {
-                encode_xr819_tx_confirm_details(packet_id, status, tx_rate, ack_failures, output)
-                    .ok()
+                encode_tx_confirm(
+                    self.configuration.tx_confirm_format(),
+                    packet_id,
+                    status,
+                    tx_rate,
+                    ack_failures,
+                    output,
+                )
+                .ok()
             })
         {
             self.pending_tx_confirmation = None;

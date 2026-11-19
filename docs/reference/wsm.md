@@ -38,7 +38,7 @@ The host driver defines the payloads, in [`wsm.h`](https://github.com/ArthurHeym
 | `0x18` | The 802.11 frame, or at `0x1a` when flags bit 7 is set |
 {: .compact}
 
-Which message confirms a frame depends on the path it took. Data frames whose subtype carries data (subtype bit 2 clear, so not null-data) take the data path, unless they are unicast EAPOL frames, and are confirmed in `MULTI_TX_CONFIRM`, as many per message as fit, even when there is only one. Everything else, such as management frames, unicast EAPOL, null-data frames and BlockAck requests, takes the single-frame path and is confirmed with `TX_CONFIRM` (`0x0404`), as is a request the firmware rejects. `TX_CONFIRM` comes in two formats, and the firmware always sends it in the XR819 format. The CW1200 format, which the driver at `2bd278da55ca` reads, lacks the three per-rate words:
+Which message confirms a frame depends on the path it took. Data frames whose subtype carries data (subtype bit 2 clear, so not null-data) take the data path, unless they are unicast EAPOL frames, and are confirmed in `MULTI_TX_CONFIRM`, as many per message as fit, even when there is only one. Everything else, such as management frames, unicast EAPOL, null-data frames and BlockAck requests, takes the single-frame path and is confirmed with `TX_CONFIRM` (`0x0404`), as is a request the firmware rejects. Both confirmations come in two formats. The firmware uses the CW1200 format when the host's accepted `CONFIGURATION_REQ`, below, is padded with at least four bytes after the DPD block, as the driver at `2bd278da55ca` sends it; otherwise it uses the XR819 format, which adds three per-rate words. Before any `CONFIGURATION_REQ` it uses the XR819 format.
 
 | XR819 offset | CW1200 offset | `TX_CONFIRM` field |
 |---|---|---|
@@ -48,14 +48,12 @@ Which message confirms a frame depends on the path it took. Data frames whose su
 | `0x0c` | `0x0c` | Rate used |
 | `0x0d` | `0x0d` | Transmissions without an acknowledgement |
 | `0x0e` | `0x0e` | Flags |
-| `0x10` | — | Attempts per hardware rate, three words of 4-bit counts |
+| `0x10` | — | Attempts per hardware rate, three words of 4-bit counts; 0 in `TX_CONFIRM` |
 | `0x1c` | `0x10` | Media delay, µs; the firmware writes 0 |
 | `0x20` | `0x14` | Queue delay, µs; the firmware writes 0 |
 {: .compact}
 
-A CW1200-format reader of a single XR819 confirmation therefore takes the first two per-rate words as the delays; the other fields agree.
-
-`MULTI_TX_CONFIRM` (`0x041e`) batches confirmations: the header, a 32-bit count at `0x04`, then that many entries from `0x08`, each laid out like a `TX_CONFIRM` from its `0x04` onwards. The entries follow the host: 20-byte CW1200 entries when its accepted `CONFIGURATION_REQ`, below, is padded with at least four bytes after the DPD block, as the driver at `2bd278da55ca` sends it; otherwise 32-byte XR819 entries.
+`MULTI_TX_CONFIRM` (`0x041e`) batches confirmations: the header, a 32-bit count at `0x04`, then that many entries from `0x08`, each laid out like a `TX_CONFIRM` from its `0x04` onwards, in the same format: 20 bytes for CW1200, 32 for XR819.
 
 | Offset | `CONFIGURATION_REQ` (`0x0009`) field |
 |---|---|

@@ -14,9 +14,9 @@ use crate::scan;
 use crate::tx;
 use crate::vif;
 use crate::wsm::{
-    ConfigurationRequest, Request, STATUS_FAILURE, TxPowerRange, TxRequest,
+    ConfigurationRequest, Request, STATUS_FAILURE, TxConfirmFormat, TxPowerRange, TxRequest,
     encode_configuration_response, encode_join_response, encode_read_mib_data_response,
-    encode_read_mib_response, encode_status_response, encode_tx_confirm, encode_xr819_tx_confirm,
+    encode_read_mib_response, encode_status_response, encode_tx_confirm,
 };
 
 use crate::key_change;
@@ -45,6 +45,7 @@ fn service_management_request(
     crypto: &mut crate::crypto::Crypto,
     request: &TxRequest<'_>,
     if_id: u8,
+    format: TxConfirmFormat,
     output: &mut [u8],
     publish_response: &mut bool,
 ) -> Result<usize, crate::wsm::Error> {
@@ -67,11 +68,11 @@ fn service_management_request(
             encode_debug_event(event_id, data, output).ok_or(crate::wsm::Error::Truncated)
         }
         tx::HostManagementTxReport::Failed { packet_id, .. } => {
-            encode_xr819_tx_confirm(packet_id, STATUS_FAILURE, output)
+            encode_tx_confirm(format, packet_id, STATUS_FAILURE, 0, 0, output)
         }
         _ => {
             *publish_response = false;
-            encode_tx_confirm(0, STATUS_FAILURE, output)
+            encode_tx_confirm(format, 0, STATUS_FAILURE, 0, 0, output)
         }
     }
 }
@@ -264,6 +265,7 @@ fn dispatch_single_request(
     } = firmware;
     let output: &mut [u8] = &mut response_scratch[..];
     let mut publish_response = true;
+    let confirm_format = configuration.tx_confirm_format();
     let request_id = request.id;
     // The host driver's only interface.
     let request_if_id = 0;
@@ -477,10 +479,17 @@ fn dispatch_single_request(
                         publish_response = false;
                         Ok(0)
                     } else {
-                        encode_xr819_tx_confirm(packet_id, STATUS_FAILURE, output)
+                        encode_tx_confirm(confirm_format, packet_id, STATUS_FAILURE, 0, 0, output)
                     }
                 } else if !host_tx_driver.management_runtime_available() {
-                    encode_xr819_tx_confirm(tx_request.packet_id, STATUS_FAILURE, output)
+                    encode_tx_confirm(
+                        confirm_format,
+                        tx_request.packet_id,
+                        STATUS_FAILURE,
+                        0,
+                        0,
+                        output,
+                    )
                 } else {
                     if let Some(ap) = vif::link_peer(request_if_id, 0) {
                         power_save.on_association_request(tx_request.frame, ap);
@@ -494,6 +503,7 @@ fn dispatch_single_request(
                         crypto,
                         &tx_request,
                         request_if_id,
+                        confirm_format,
                         output,
                         &mut publish_response,
                     )
@@ -504,7 +514,7 @@ fn dispatch_single_request(
                     .get(..4)
                     .map(|value| u32::from_le_bytes([value[0], value[1], value[2], value[3]]))
                     .unwrap_or(0);
-                encode_xr819_tx_confirm(packet_id, STATUS_FAILURE, output)
+                encode_tx_confirm(confirm_format, packet_id, STATUS_FAILURE, 0, 0, output)
             }
             // Do not report success for commands whose state effects are not
             // implemented. A complete status word lets cw1200 fail the

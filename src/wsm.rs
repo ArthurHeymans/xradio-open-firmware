@@ -1008,19 +1008,17 @@ pub fn encode_join_response(
     Ok(LEN)
 }
 
-pub fn encode_tx_confirm(packet_id: u32, status: u32, output: &mut [u8]) -> Result<usize, Error> {
-    encode_tx_confirm_details(packet_id, status, 0, 0, output)
-}
-
-pub fn encode_tx_confirm_details(
+/// One `TX_CONFIRM`: the header, then the fields of one multi-TX confirm
+/// entry in `format`, so single and batched confirmations always match.
+pub fn encode_tx_confirm(
+    format: TxConfirmFormat,
     packet_id: u32,
     status: u32,
     tx_rate: u8,
     ack_failures: u8,
     output: &mut [u8],
 ) -> Result<usize, Error> {
-    const PAYLOAD_LEN: usize = 20;
-    let total_len = HEADER_LEN + PAYLOAD_LEN;
+    let total_len = HEADER_LEN + format.entry_len();
     if output.len() < total_len {
         return Err(Error::OutputTooSmall);
     }
@@ -1029,68 +1027,17 @@ pub fn encode_tx_confirm_details(
         id: TX_CONFIRM_ID,
     }
     .encode(output)?;
-    output[HEADER_LEN..total_len].fill(0);
-    write_u32(output, HEADER_LEN, packet_id);
-    write_u32(output, HEADER_LEN + 4, status);
-    output[HEADER_LEN + 8] = tx_rate;
-    output[HEADER_LEN + 9] = ack_failures;
-    Ok(total_len)
-}
-
-pub fn encode_xr819_tx_confirm(
-    packet_id: u32,
-    status: u32,
-    output: &mut [u8],
-) -> Result<usize, Error> {
-    encode_xr819_tx_confirm_details(packet_id, status, 0, 0, output)
-}
-
-pub fn encode_xr819_tx_confirm_details(
-    packet_id: u32,
-    status: u32,
-    tx_rate: u8,
-    ack_failures: u8,
-    output: &mut [u8],
-) -> Result<usize, Error> {
-    encode_xr819_tx_confirm_retry_details(
+    encode_tx_confirm_entry(
+        format,
         packet_id,
         status,
         tx_rate,
         ack_failures,
         0,
         [0; 3],
+        HEADER_LEN,
         output,
-    )
-}
-
-pub fn encode_xr819_tx_confirm_retry_details(
-    packet_id: u32,
-    status: u32,
-    tx_rate: u8,
-    ack_failures: u8,
-    flags: u16,
-    rate_try: [u32; 3],
-    output: &mut [u8],
-) -> Result<usize, Error> {
-    const PAYLOAD_LEN: usize = 32;
-    let total_len = HEADER_LEN + PAYLOAD_LEN;
-    if output.len() < total_len {
-        return Err(Error::OutputTooSmall);
-    }
-    Header {
-        len: total_len as u16,
-        id: TX_CONFIRM_ID,
-    }
-    .encode(output)?;
-    output[HEADER_LEN..total_len].fill(0);
-    write_u32(output, HEADER_LEN, packet_id);
-    write_u32(output, HEADER_LEN + 4, status);
-    output[HEADER_LEN + 8] = tx_rate;
-    output[HEADER_LEN + 9] = ack_failures;
-    write_u16(output, HEADER_LEN + 10, flags);
-    for (index, attempts) in rate_try.into_iter().enumerate() {
-        write_u32(output, HEADER_LEN + 12 + index * 4, attempts);
-    }
+    )?;
     Ok(total_len)
 }
 
@@ -1704,10 +1651,17 @@ mod tests {
     }
 
     #[test]
-    fn failed_tx_confirm_has_complete_driver_shape() {
-        let mut output = [0_u8; 24];
+    fn cw1200_tx_confirm_has_complete_driver_shape() {
+        let mut output = [0xff_u8; 24];
         assert_eq!(
-            encode_tx_confirm(0x1234_5678, STATUS_FAILURE, &mut output),
+            encode_tx_confirm(
+                TxConfirmFormat::Cw1200,
+                0x1234_5678,
+                STATUS_FAILURE,
+                0,
+                0,
+                &mut output
+            ),
             Ok(24)
         );
         assert_eq!(&output[..4], &[24, 0, 4, 4]);
@@ -1717,23 +1671,25 @@ mod tests {
     }
 
     #[test]
-    fn xr819_tx_confirm_carries_per_rate_failure_nibbles() {
-        let mut output = [0_u8; 36];
-        let rate_try = [0x0000_0002, 0x3000_0000, 0x0000_0004];
+    fn xr819_tx_confirm_is_36_bytes_with_rate_and_failures() {
+        let mut output = [0xff_u8; 36];
         assert_eq!(
-            encode_xr819_tx_confirm_retry_details(0x1234_5678, 0, 21, 6, 1, rate_try, &mut output,),
+            encode_tx_confirm(TxConfirmFormat::Xr819, 0x1234_5678, 0, 21, 6, &mut output),
             Ok(36)
         );
         assert_eq!(&output[..4], &[36, 0, 4, 4]);
         assert_eq!(output[12], 21);
         assert_eq!(output[13], 6);
-        assert_eq!(&output[14..16], &1_u16.to_le_bytes());
-        for (index, expected) in rate_try.into_iter().enumerate() {
-            assert_eq!(
-                &output[16 + index * 4..20 + index * 4],
-                &expected.to_le_bytes()
-            );
-        }
+        assert!(output[14..].iter().all(|value| *value == 0));
+    }
+
+    #[test]
+    fn tx_confirm_rejects_short_output() {
+        let mut output = [0_u8; 23];
+        assert_eq!(
+            encode_tx_confirm(TxConfirmFormat::Cw1200, 1, 0, 0, 0, &mut output),
+            Err(Error::OutputTooSmall)
+        );
     }
 
     #[test]
