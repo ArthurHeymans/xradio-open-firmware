@@ -10,7 +10,7 @@
 //! timed work is due (`sleep_budget`). A received frame ends the sleep
 //! through the MAC's FIQ line, but with the minimal host driver sleeping
 //! between the frames of a flow loses some of them
-//! (`docs/interrupts-and-sleep.md`); the linger keeps the loop awake while
+//! (`docs/reference/measurements.md`); the linger keeps the loop awake while
 //! traffic flows.
 
 use crate::activity::Activity;
@@ -39,7 +39,7 @@ const WATCHDOG_PERIOD_US: u32 = 200_000;
 
 /// How long passes must move nothing before the loop sleeps. Frames of a
 /// flow arrive far closer together: with the minimal host driver, sleeping
-/// between them lost 1-7% of a 30 Mbit/s downlink, waiting awake on the
+/// between them lost 0.5-7% of a 30 Mbit/s downlink, waiting awake on the
 /// same wake conditions nothing.
 const LINGER_US: u32 = 5_000;
 

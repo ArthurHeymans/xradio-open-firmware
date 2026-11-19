@@ -12,61 +12,104 @@ use zerocopy::byteorder::little_endian::{U16, U32};
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 pub const HEADER_LEN: usize = 4;
+/// The firmware is ready; buffer geometry and capabilities.
 pub const STARTUP_IND_ID: u16 = 0x0801;
+/// A scan has finished.
+pub const SCAN_COMPLETE_IND_ID: u16 = 0x0806;
 /// XR819 open firmware only, not a vendor WSM capability.
 pub const CAP_PEER_HT: u16 = 1 << 15;
+/// HT capabilities of a peer (open firmware only).
 pub const MIB_ID_PEER_HT: u16 = 0xff49;
+/// Set the MAC address and other device configuration.
 pub const CONFIGURATION_REQ_ID: u16 = 0x0009;
 pub const CONFIGURATION_RESP_ID: u16 = 0x0409;
+/// Reset an interface or link.
 pub const RESET_REQ_ID: u16 = 0x000a;
 pub const RESET_RESP_ID: u16 = 0x040a;
+/// Read a MIB value.
 pub const READ_MIB_REQ_ID: u16 = 0x0005;
 pub const READ_MIB_RESP_ID: u16 = 0x0405;
+/// Write a MIB value.
 pub const WRITE_MIB_REQ_ID: u16 = 0x0006;
 pub const WRITE_MIB_RESP_ID: u16 = 0x0406;
+/// Start a scan.
 pub const START_SCAN_REQ_ID: u16 = 0x0007;
+/// Stop a running scan.
 pub const STOP_SCAN_REQ_ID: u16 = 0x0008;
+/// Set the power-save mode.
 pub const SET_PM_REQ_ID: u16 = 0x0010;
+/// Update the information elements of beacons or probe responses.
 pub const UPDATE_IE_REQ_ID: u16 = 0x001b;
+/// A power-save mode change has completed.
 pub const SET_PM_COMPLETE_IND_ID: u16 = 0x0809;
 pub const START_SCAN_RESP_ID: u16 = 0x0407;
+/// Transmit a frame.
 pub const TX_REQ_ID: u16 = 0x0004;
 pub const TX_CONFIRM_ID: u16 = 0x0404;
+/// Several transmit confirmations in one message.
 pub const MULTI_TX_CONFIRM_ID: u16 = 0x041e;
+/// Join a BSS.
 pub const JOIN_REQ_ID: u16 = 0x000b;
 pub const JOIN_RESP_ID: u16 = 0x040b;
+/// Install a key.
 pub const ADD_KEY_REQ_ID: u16 = 0x000c;
 pub const ADD_KEY_RESP_ID: u16 = 0x040c;
+/// Remove a key.
 pub const REMOVE_KEY_REQ_ID: u16 = 0x000d;
 pub const REMOVE_KEY_RESP_ID: u16 = 0x040d;
+/// A join has completed.
 pub const JOIN_COMPLETE_IND_ID: u16 = 0x080f;
+/// Switch to another channel.
 pub const SWITCH_CHANNEL_REQ_ID: u16 = 0x0016;
+/// A channel switch has completed.
 pub const SWITCH_CHANNEL_IND_ID: u16 = 0x080a;
+/// Set BSS parameters such as the AID and beacon interval.
 pub const SET_BSS_PARAMS_REQ_ID: u16 = 0x0011;
 pub const SET_BSS_PARAMS_RESP_ID: u16 = 0x0411;
+/// Set the parameters of a transmit queue.
 pub const TX_QUEUE_PARAMS_REQ_ID: u16 = 0x0012;
 pub const TX_QUEUE_PARAMS_RESP_ID: u16 = 0x0412;
+/// Set the EDCA parameters of the access categories.
 pub const EDCA_PARAMS_REQ_ID: u16 = 0x0013;
+/// Start an access point or IBSS.
 pub const START_REQ_ID: u16 = 0x0017;
+/// Enable or disable beacon transmission.
 pub const BEACON_TRANSMIT_REQ_ID: u16 = 0x0018;
+/// Map a peer station to a link ID.
 pub const MAP_LINK_REQ_ID: u16 = 0x001c;
+/// Transmission is suspended or resumed, for power save.
 pub const SUSPEND_RESUME_IND_ID: u16 = 0x080c;
 pub const EDCA_PARAMS_RESP_ID: u16 = 0x0413;
+/// A received frame.
 pub const RECEIVE_IND_ID: u16 = 0x0804;
 
 pub const STATUS_SUCCESS: u32 = 0;
 pub const STATUS_FAILURE: u32 = 1;
+/// Transmit power.
 pub const MIB_ID_DOT11_CURRENT_TX_POWER_LEVEL: u16 = 0x0006;
+/// A template frame: beacon, probe response and others.
 pub const MIB_ID_TEMPLATE_FRAME: u16 = 0x1002;
+/// Receive filter flags.
 pub const MIB_ID_RX_FILTER: u16 = 0x1003;
+/// Beacon information elements to watch for changes.
 pub const MIB_ID_BEACON_FILTER_TABLE: u16 = 0x1004;
+/// Beacon filtering and beacon-loss detection.
 pub const MIB_ID_BEACON_FILTER_ENABLE: u16 = 0x1005;
+/// Signal thresholds for signal indications.
 pub const MIB_ID_RCPI_RSSI_THRESHOLD: u16 = 0x1009;
+/// TIDs allowed for BlockAck sessions, in each direction.
 pub const MIB_ID_BLOCK_ACK_POLICY: u16 = 0x100e;
+/// Association parameters, including the peer's minimum MPDU start spacing.
 pub const MIB_ID_SET_ASSOCIATION_MODE: u16 = 0x1010;
+/// U-APSD parameters.
 pub const MIB_ID_SET_UAPSD_INFORMATION: u16 = 0x1013;
+/// Receive frames from other BSSes.
 pub const MIB_ID_DISABLE_BSSID_FILTER: u16 = 0x1026;
+/// Multicast addresses to receive.
 pub const MIB_ID_GROUP_ADDRESSES_TABLE: u16 = 0x0004;
+/// Frame and error counters; read only.
+pub const MIB_ID_COUNTERS_TABLE: u16 = 0x100c;
+/// Enable a transmit BlockAck session for a TID (open firmware only).
 pub const MIB_ID_PRIVATE_TX_BA_SESSION: u16 = 0xff48;
 
 #[derive(Clone, Copy, Immutable, IntoBytes)]
@@ -1197,7 +1240,7 @@ pub fn encode_scan_complete_indication(
 
     Header {
         len: LEN as u16,
-        id: 0x0806,
+        id: SCAN_COMPLETE_IND_ID,
     }
     .encode(output)?;
     write_u32(output, 4, status);

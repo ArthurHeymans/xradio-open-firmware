@@ -62,7 +62,7 @@ const VENDOR_REGISTER_INITIALIZATION: &[(u32, u32)] = &[
 
 pub fn load_phy_init_tables() {
     for &(destination, data) in PHY_INIT_TABLES {
-        for (index, word) in data.chunks_exact(4).enumerate() {
+        for (index, word) in data.as_chunks::<4>().0.iter().enumerate() {
             let value = u32::from_le_bytes([word[0], word[1], word[2], word[3]]);
             unsafe { ((destination + index * 4) as *mut u32).write_volatile(value) };
         }

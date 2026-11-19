@@ -416,7 +416,7 @@ fn program_rate_tables(pas: &Pas) {
 /// the channel transition first, so it must make this call after activation.
 ///
 /// The shared rate RAM must be exclusively owned.
-/// Pause the MAC's receive side for a microsecond (vendor
+/// Pause the MAC's receive side for about 2 µs (vendor
 /// `mac_rx_pause_briefly`, 0x30a): bits 2..5 of 0x09c00e8c cleared, then
 /// restored. The pipe watchdog does this when a pipe nears expiry, so a
 /// receiver busy with a frame stream lets the pipe's transmission finish.
@@ -569,6 +569,76 @@ pub fn start_beaconing(rate: u8) {
         airtime + 1
     };
     write_u32(platform::mac_register(0x0e94), airtime & 0xffff);
+}
+
+tock_registers::register_bitfields! {
+    u32,
+    BeaconTimer [
+        /// Low 24 bits of the target beacon transmission time, in TSF
+        /// microseconds.
+        TBTT OFFSET(0) NUMBITS(24) [],
+        /// Set when arming.
+        ARM OFFSET(30) NUMBITS(1) [],
+    ],
+    /// The firmware starts from `0x07e3_b85c`, whose other set bits are not
+    /// described, and adds one group of four bits per active interface
+    /// record: path 0 when the record's address is interface 0's, path 1
+    /// otherwise. Scanning uses the base with path 1, `0x07f3_bd5e`.
+    MacMode [
+        /// In path 0's mask, `0x0008_0281`.
+        PATH0_0 OFFSET(0) NUMBITS(1) [],
+        /// In path 1's mask, `0x0010_0502`.
+        PATH1_1 OFFSET(1) NUMBITS(1) [],
+        /// In path 0's mask, `0x0008_0281`.
+        PATH0_7 OFFSET(7) NUMBITS(1) [],
+        /// In path 1's mask, `0x0010_0502`.
+        PATH1_8 OFFSET(8) NUMBITS(1) [],
+        /// In path 0's mask, `0x0008_0281`.
+        PATH0_9 OFFSET(9) NUMBITS(1) [],
+        /// In path 1's mask, `0x0010_0502`.
+        PATH1_10 OFFSET(10) NUMBITS(1) [],
+        /// Set if any active interface record has mode 2.
+        MODE2 OFFSET(14) NUMBITS(1) [],
+        /// In path 0's mask, `0x0008_0281`.
+        PATH0_19 OFFSET(19) NUMBITS(1) [],
+        /// In path 1's mask, `0x0010_0502`.
+        PATH1_20 OFFSET(20) NUMBITS(1) [],
+    ],
+    /// Shared by `OWN_MAC_MODE`, `BSSID_MODE` and `SECOND_ADDR_MODE`.
+    MatchMode [
+        /// Set to use the entry; 0 disables it.
+        ENABLE OFFSET(0) NUMBITS(1) [],
+        /// Match role.
+        ROLE OFFSET(8) NUMBITS(2) [
+            /// Own address, or the BSSID of an AP or IBSS interface.
+            OWN = 1,
+            /// The BSSID of the AP a station is joined to. With `ROLE` = 1 in
+            /// `BSSID_MODE` instead, the MAC answers the AP's aggregates from an
+            /// unused pipe.
+            STATION = 3
+        ],
+    ],
+    /// One bit per response pointer slot in `RESPONSE_ENABLE`,
+    /// `RESPONSE_BITMAP_SET` and `RESPONSE_BITMAP_CLEAR`. The firmware masks
+    /// its `RESPONSE_STATE` writes to bits 23:0. Bits 30:25 are never
+    /// written; no slot above 22 is installed, so bits 24:21 stay clear too.
+    ResponseSlots [
+        /// Bit *n* stands for pointer slot *n* + 2, slots 2 to 26.
+        SLOT OFFSET(0) NUMBITS(25) [],
+        /// Slots 27 and 28, both, in the two bitmaps. Never installed.
+        SLOT_27_28 OFFSET(31) NUMBITS(1) [],
+    ],
+    /// The firmware writes `0x1030_0000` plus this bit; the other set bits
+    /// are not described.
+    BeaconControl [
+        /// Send the beacon descriptor in pointer slot 0 at the next TBTT.
+        ARM OFFSET(0) NUMBITS(1) [],
+    ],
+    EventReadiness [
+        /// Set when the event FIFO holds no more events. The firmware drains
+        /// the FIFO only while this bit is clear.
+        EMPTY OFFSET(31) NUMBITS(1) [],
+    ],
 }
 
 /// Have the MAC send the beacon descriptor at `tbtt` (vendor

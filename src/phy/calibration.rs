@@ -350,6 +350,36 @@ pub fn calibration_sample_settings(i: u8, q: u8) -> u32 {
     calibration_sample_settings_from(0, i, q)
 }
 
+tock_registers::register_bitfields! {
+    u32,
+    CalibrationSample [
+        /// I setting.
+        I OFFSET(0) NUMBITS(8) [],
+        /// Always set with a new I value.
+        BIT8 OFFSET(8) NUMBITS(1) [],
+        /// Always cleared with a new I value.
+        BIT9 OFFSET(9) NUMBITS(1) [],
+        /// Q setting.
+        Q OFFSET(16) NUMBITS(8) [],
+        /// Always set with a new Q value.
+        BIT24 OFFSET(24) NUMBITS(1) [],
+        /// Always cleared with a new Q value.
+        BIT25 OFFSET(25) NUMBITS(1) [],
+    ],
+    /// Read side; writes are commands.
+    CalibrationCommand [
+        /// Set when the measurement has completed.
+        DONE OFFSET(4) NUMBITS(1) [],
+    ],
+    /// Written 0 for a negative gain.
+    CalibrationGain [
+        /// Gain value.
+        GAIN OFFSET(0) NUMBITS(6) [],
+        /// Set with a non-negative gain.
+        ENABLE OFFSET(6) NUMBITS(1) [],
+    ],
+}
+
 pub(super) fn calibration_sample_settings_from(current: u32, i: u8, q: u8) -> u32 {
     let with_i = (current & !0x0000_02ff) | u32::from(i);
     let with_q = (with_i & !0x02ff_0000) | (u32::from(q) << 16);

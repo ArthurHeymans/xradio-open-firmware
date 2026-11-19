@@ -39,6 +39,20 @@ fn channel_power_limit(high_rate: bool) -> i16 {
     }
 }
 
+tock_registers::register_bitfields! {
+    u32,
+    PllValue [
+        /// Fractional part, in units of 2⁻²¹.
+        FRACTION OFFSET(0) NUMBITS(21) [],
+        /// Integer part.
+        INTEGER OFFSET(21) NUMBITS(11) [],
+    ],
+    PllControl [
+        /// Cleared and set again to restart the PLL with a new divider.
+        RESTART OFFSET(13) NUMBITS(1) [],
+    ],
+}
+
 /// Complete `0x18f2c -> 0x1838c` PLL publication sequence. It remains
 /// intentionally detached from scan execution until the surrounding
 /// calibration path is ready.

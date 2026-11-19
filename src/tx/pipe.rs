@@ -341,14 +341,63 @@ pub fn capture_pipe_scheduler_word<M: Hw>(mmio: &mut M) -> SchedulerWord {
     SchedulerWord::new(mmio.read(PIPE_IRQ_PENDING))
 }
 
+tock_registers::register_bitfields! {
+    u32,
+    /// The lowest non-zero nibble decides which service runs.
+    pub(crate) PipeScheduler [
+        /// One bit per pipe. All asserted pipes are serviced together: the
+        /// firmware programs backoff for pipes 0–2 and triggers each of them.
+        SERVICE_LOW OFFSET(0) NUMBITS(4) [],
+        /// One bit per pipe. Only the lowest asserted pipe is serviced.
+        SERVICE_MID OFFSET(4) NUMBITS(4) [],
+        /// One bit per pipe; with TX status 4 or `0x19` the pipe's frames are
+        /// retried.
+        RETRY OFFSET(8) NUMBITS(4) [],
+        /// One bit per pipe. Services the pipe latched by the last pipe
+        /// event.
+        SERVICE_HIGH OFFSET(12) NUMBITS(4) [],
+    ],
+    pub(crate) PipeTrigger [
+        /// One bit per serviced pipe.
+        PIPES OFFSET(25) NUMBITS(4) [],
+    ],
+    /// Which command slot the MAC is on, and which slots it still owns.
+    pub(crate) RingCursor [
+        /// Pending command slots, one bit per slot of the pipe. A retry
+        /// clears the current slot's bit to send it again.
+        PENDING OFFSET(0) NUMBITS(4) [],
+        /// Command slot the MAC is on.
+        SLOT OFFSET(24) NUMBITS(3) [],
+        /// Written with the same slot as `SLOT` when the firmware
+        /// resynchronizes the ring.
+        SLOT_COPY OFFSET(27) NUMBITS(3) [],
+    ],
+}
+
+/// Registers of one TX ring. Only used for its offsets: the firmware reaches
+/// the rings through `Hw` so that host tests can stand in for them.
 #[repr(C)]
 pub(crate) struct TxHardwareRingLayout {
-    pub(crate) duration_fifo: u32,
-    pub(crate) opaque_04: [u8; 0x10],
-    pub(crate) go: u32,
-    pub(crate) inactive_sentinel: u32,
-    pub(crate) completion_word: u32,
-    pub(crate) cursor_and_pending_mask: u32,
+    /// One airtime word per published command slot, written before `GO`.
+    pub(crate) duration_fifo: tock_registers::registers::WriteOnly<u32>,
+    pub(crate) _unknown_04: [u8; 8],
+    /// MAC packet offset of the pipe's first command slot. Written at
+    /// packet-DMA start-up and again at MAC start-up.
+    pub(crate) command_base: tock_registers::registers::WriteOnly<u32>,
+    /// Command descriptor size, `0x54`. Written at packet-DMA start-up and
+    /// again at MAC start-up.
+    pub(crate) command_length: tock_registers::registers::WriteOnly<u32>,
+    /// Written 1 at both start-up passes. In operation, 0 as each
+    /// descriptor is staged and 1 once per publication, after the duration
+    /// words. A retry does not write it.
+    pub(crate) go: tock_registers::registers::WriteOnly<u32>,
+    /// `0xff00_ffff` marks the pipe retry-inactive.
+    pub(crate) inactive_sentinel: tock_registers::registers::WriteOnly<u32>,
+    /// Written 1 after a slot is given up; acknowledges the completion
+    /// (inferred).
+    pub(crate) completion_word: tock_registers::registers::WriteOnly<u32>,
+    /// Current slot and pending mask; see the bit layout below.
+    pub(crate) cursor_and_pending_mask: tock_registers::registers::ReadWrite<u32>,
 }
 
 #[repr(transparent)]

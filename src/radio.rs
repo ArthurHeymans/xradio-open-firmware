@@ -47,13 +47,20 @@ register_structs! {
     /// frame follows at 0x20 (its length counts the FCS), then the receive
     /// trailer at the next word boundary.
     SlotHeader {
+        /// `0x00aa_55ff` in a valid slot. The firmware writes it at the
+        /// producer when it repairs a damaged tail slot, and clears it when
+        /// it releases the slot.
         (0x00 => magic: ReadWrite<u32>),
+        /// Offset of the next slot, written by the firmware when it claims
+        /// this one.
         (0x04 => next: ReadWrite<u32>),
+        /// On release the firmware writes `0xcccc_cc00`, keeping the low
+        /// byte.
         (0x08 => state: ReadWrite<u32>),
         (0x0c => _reserved0),
-        /// The low word of the TSF when the frame began (measured: a beacon
-        /// is processed its airtime later).
+        /// Low word of the TSF at the start of the frame.
         (0x14 => rx_tsf: ReadOnly<u32>),
+        /// Frame length in octets, including the FCS.
         (0x18 => length: ReadOnly<u16>),
         (0x1a => _reserved1),
         (0x20 => @END),

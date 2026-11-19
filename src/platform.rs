@@ -9,31 +9,116 @@ use crate::global::Global;
 use crate::packet_ram;
 use core::cell::Cell;
 use tock_registers::interfaces::{Readable, Writeable};
-use tock_registers::registers::{ReadOnly, ReadWrite};
+use tock_registers::registers::{ReadOnly, ReadWrite, WriteOnly};
 use tock_registers::{register_bitfields, register_structs};
 
 register_bitfields! {
     u32,
+    /// Startup writes `0x0102_0418`, which leaves `ENABLE` clear; the
+    /// receive path sets it later. To stop the engine, clear `ENABLE` and
+    /// poll `ACTIVE` with a timeout. The other startup bits are not described.
     pub(crate) RxDmaControl [
         /// Packet DMA writes received frames into the RX FIFO.
         ENABLE OFFSET(0) NUMBITS(1) [],
         /// Still moving a frame; clears after ENABLE is dropped.
         ACTIVE OFFSET(23) NUMBITS(1) [],
     ],
+    /// The memory probe and the DMA and clock set-up each flip two bits;
+    /// neither pair's function is known.
+    SystemControlBits [
+        /// Set by DMA and clock set-up.
+        BIT4 OFFSET(4) NUMBITS(1) [],
+        /// Cleared by the memory probe.
+        BIT5 OFFSET(5) NUMBITS(1) [],
+        /// Set by the memory probe.
+        BIT6 OFFSET(6) NUMBITS(1) [],
+        /// Cleared by DMA and clock set-up.
+        BIT7 OFFSET(7) NUMBITS(1) [],
+    ],
+    SystemStatusBits [
+        /// Read after the probe sets `CONTROL` bit 6. If set, the firmware
+        /// clears `SECONDARY_CONTROL` bit 6 and reads it again; if it has
+        /// then cleared, the startup mode drops from 3 to 1.
+        PROBE_RESULT OFFSET(5) NUMBITS(1) [],
+    ],
+    SecondaryControlBits [
+        /// Cleared by DMA and clock set-up.
+        BIT4 OFFSET(4) NUMBITS(1) [],
+        /// Set during the memory probe; cleared again if
+        /// `STATUS.PROBE_RESULT` reads set.
+        BIT6 OFFSET(6) NUMBITS(1) [],
+    ],
+    WindowSelector [
+        /// Remap window (0..7) read back through `WINDOW_VALUE`. The
+        /// firmware preserves the other bits.
+        WINDOW OFFSET(2) NUMBITS(3) [],
+    ],
+    /// One remap window descriptor, as the relocation arithmetic decodes it.
+    /// Window 5's bits 11:0 and window 4's `HIGH` form a third page number
+    /// that is relocated the same way.
+    /// Window 0 doubles as the remap control word: when its bit 27 is clear
+    /// the memory probe runs.
+    RemapWindow [
+        /// Preserved by relocation in windows 3 and 4; in window 5 it is part
+        /// of the third page number.
+        LOW OFFSET(0) NUMBITS(12) [],
+        /// Page number. Windows 3 and 4 are relocated by adding `0x166`.
+        PAGE OFFSET(12) NUMBITS(16) [],
+        /// With window 5's bits 11:0, a third page number (window 4 only).
+        HIGH OFFSET(28) NUMBITS(4) [],
+    ],
+    /// Both timers use this layout.
+    TimerControl [
+        /// Set in timer 1's one-shot start value. Not isolated from bit 6.
+        BIT0 OFFSET(0) NUMBITS(1) [],
+        /// Reads set once the one-shot has fired: observed in a test image;
+        /// the firmware itself does not read it.
+        FIRED OFFSET(1) NUMBITS(1) [],
+        /// Set in timer 1's one-shot start value. Not isolated from bit 0.
+        BIT6 OFFSET(6) NUMBITS(1) [],
+        /// Set in both start values; starts the count (inferred).
+        ENABLE OFFSET(7) NUMBITS(1) [],
+    ],
+    PlatformReady [
+        /// Set once the clock/PLL block has settled. Polled at most
+        /// `0x200` times.
+        READY OFFSET(0) NUMBITS(1) [],
+    ],
+    PlatformClockStatus [
+        /// Selects the `CLOCK_FLAGS` value: `0x0c02` when clear, `0x0042`
+        /// when set.
+        SELECT OFFSET(3) NUMBITS(1) [],
+    ],
+    /// Updated twice during bring-up. The first update must come before
+    /// platform preparation.
+    PlatformConfiguration [
+        /// Cleared by the first update.
+        BIT0 OFFSET(0) NUMBITS(1) [],
+        /// Set by DMA and clock set-up when no remap window is present.
+        BIT17 OFFSET(17) NUMBITS(1) [],
+        /// Set with bit 17.
+        BIT20 OFFSET(20) NUMBITS(1) [],
+        /// Set by the first update.
+        BIT23 OFFSET(23) NUMBITS(1) [],
+    ],
 }
 
 register_structs! {
     /// The MAC's RX packet DMA (MAC block 0x0600).
     pub(crate) RxDma {
+        /// Enable and activity.
         (0x00 => pub(crate) control: ReadWrite<u32, RxDmaControl::Register>),
         /// FIFO offset just past the newest frame written.
         (0x04 => pub(crate) producer: ReadWrite<u32>),
         /// FIFO offset up to which the firmware has released frames.
         (0x08 => pub(crate) consumer: ReadWrite<u32>),
-        (0x0c => configuration_0c: ReadWrite<u32>),
+        /// Written `0x80`, before `CONTROL`.
+        (0x0c => configuration_0c: WriteOnly<u32>),
         (0x10 => _reserved0),
-        (0x1c => configuration_1c: ReadWrite<u32>),
-        (0x20 => configuration_20: ReadWrite<u32>),
+        /// Written 7.
+        (0x1c => configuration_1c: WriteOnly<u32>),
+        /// Written `0x3000_0000`.
+        (0x20 => configuration_20: WriteOnly<u32>),
         (0x24 => @END),
     }
 }
@@ -47,23 +132,37 @@ pub(crate) fn rx_dma() -> &'static RxDma {
 register_structs! {
     ClockReset {
         (0x00 => _reserved0),
-        (0x04 => control_04: ReadWrite<u32>),
-        (0x08 => window_selector: ReadWrite<u32>),
+        /// Written `0x200` once, during DMA and clock set-up. The stack must be
+        /// in DTCM; see the transition on this page.
+        (0x04 => control_04: WriteOnly<u32>),
+        /// Selects the remap window read through `WINDOW_VALUE`.
+        (0x08 => window_selector: ReadWrite<u32, WindowSelector::Register>),
         (0x0c => _reserved1),
+        /// The memory probe ORs in `0x0018_0200` and restores the saved value
+        /// afterwards.
         (0x18 => feature_control: ReadWrite<u32>),
         (0x1c => _reserved2),
-        (0x2c => window_value: ReadWrite<u32>),
+        /// The selected remap window. All eight are sampled once at startup.
+        (0x2c => window_value: ReadOnly<u32, RemapWindow::Register>),
         (0x30 => _reserved3),
+        /// DMA and clock set-up ORs in `0x00f0_0000`.
         (0x40 => mask_40: ReadWrite<u32>),
+        /// Interrupt set-up ANDs with `0x7fff_f777`, clearing bits 31, 11, 7
+        /// and 3.
         (0x44 => mask_44: ReadWrite<u32>),
+        /// Interrupt set-up ANDs with `0x777f_ffff`; DMA and clock set-up
+        /// later ORs in `0xf0`.
         (0x48 => mask_48: ReadWrite<u32>),
         (0x4c => @END),
     },
 
     SystemControl {
-        (0x00 => control: ReadWrite<u32>),
-        (0x04 => status: ReadWrite<u32>),
-        (0x08 => secondary_control: ReadWrite<u32>),
+        /// Flipped by the memory probe and by DMA and clock set-up.
+        (0x00 => control: ReadWrite<u32, SystemControlBits::Register>),
+        /// Probe result.
+        (0x04 => status: ReadOnly<u32, SystemStatusBits::Register>),
+        /// Second control word used by the same two paths.
+        (0x08 => secondary_control: ReadWrite<u32, SecondaryControlBits::Register>),
         (0x0c => @END),
     },
 
@@ -71,56 +170,91 @@ register_structs! {
     /// 0x4f). Timer 0 runs free and is the firmware's clock; timer 1 counts
     /// down `load` microseconds once and then raises IRQ 6.
     Timers {
-        (0x00 => timer0_load: ReadWrite<u32>),
-        /// Microseconds, counting up.
+        /// Written `0xffff_ffff`, so timer 0 free-runs.
+        (0x00 => timer0_load: WriteOnly<u32>),
+        /// Microseconds, counting up. The firmware's only clock; wraps after
+        /// 2³² µs (71.6 minutes).
         (0x04 => now: ReadOnly<u32>),
-        (0x08 => timer0_control: ReadWrite<u32>),
+        /// Written `0x80` to start timer 0.
+        (0x08 => timer0_control: WriteOnly<u32, TimerControl::Register>),
         (0x0c => _reserved0),
-        (0x10 => timer0_prescale: ReadWrite<u32>),
-        (0x14 => timer1_load: ReadWrite<u32>),
+        /// `0x4f`: 80 MHz divided to 1 MHz.
+        (0x10 => timer0_prescale: WriteOnly<u32>),
+        /// One-shot delay in microseconds.
+        (0x14 => timer1_load: WriteOnly<u32>),
         (0x18 => _reserved1),
-        /// 0xc1 starts a one-shot count; bit 1 reads set once it fired.
-        /// Writing 0 stops it, and must come first to start it again.
-        (0x1c => timer1_control: ReadWrite<u32>),
-        (0x20 => timer1_mode: ReadWrite<u32>),
-        (0x24 => timer1_prescale: ReadWrite<u32>),
+        /// One-shot control: `0xc1` starts, 0 stops. Read back only in a test
+        /// image.
+        (0x1c => timer1_control: WriteOnly<u32, TimerControl::Register>),
+        /// Written 0.
+        (0x20 => timer1_mode: WriteOnly<u32>),
+        /// `0x4f`, as for timer 0.
+        (0x24 => timer1_prescale: WriteOnly<u32>),
         (0x28 => @END),
     },
 
     PlatformControl {
         (0x00 => _reserved0),
-        (0x58 => shared_pointer: ReadWrite<u32>),
+        /// DMA and clock set-up writes `0x0004_0090`. Not a CPU-form DTCM
+        /// address; the encoding is unknown.
+        (0x58 => shared_pointer: WriteOnly<u32>),
         (0x5c => _reserved1),
+        /// PHY controller run and halt (inferred). DMA and clock set-up writes `0x10`;
+        /// RF start-up writes `0x11` and then 1 if bit 0 reads clear;
+        /// stopping the radio, or dozing the receiver, writes `0x10` again.
         (0x64 => power_control: ReadWrite<u32>),
         (0x68 => _reserved2),
-        (0x80 => ready_status: ReadWrite<u32>),
-        (0x84 => clock_flags: ReadWrite<u32>),
+        /// Clock/PLL settle flag.
+        (0x80 => ready_status: ReadOnly<u32, PlatformReady::Register>),
+        /// `0x0c02` or `0x0042`, chosen by `CLOCK_STATUS` bit 3.
+        (0x84 => clock_flags: WriteOnly<u32>),
         (0x88 => _reserved3),
-        (0x94 => clock_status: ReadWrite<u32>),
+        /// Read once to choose the `CLOCK_FLAGS` value.
+        (0x94 => clock_status: ReadOnly<u32, PlatformClockStatus::Register>),
         (0x98 => _reserved4),
-        (0x9c => parameter_9c: ReadWrite<u32>),
-        (0xa0 => parameter_a0: ReadWrite<u32>),
+        /// Written 6.
+        (0x9c => parameter_9c: WriteOnly<u32>),
+        /// Written 31.
+        (0xa0 => parameter_a0: WriteOnly<u32>),
         (0xa4 => _reserved5),
-        (0xbc => configuration: ReadWrite<u32>),
+        /// Clear bit 0 and set bit 23 before platform preparation; later OR
+        /// in `0x0012_0000` if no remap window is present.
+        (0xbc => configuration: ReadWrite<u32, PlatformConfiguration::Register>),
         (0xc0 => @END),
     },
 
+    /// Nine words the vendor writes once, after subsystem initialization
+    /// and before it enables interrupts. Replaying them changed nothing
+    /// measurable, so their meaning is unproven and the firmware does not
+    /// write them.
     InterruptRouting {
         (0x00 => _reserved0),
-        (0x10 => route_10: ReadWrite<u32>),
-        (0x14 => route_14: ReadWrite<u32>),
-        (0x18 => route_18: ReadWrite<u32>),
-        (0x1c => route_1c: ReadWrite<u32>),
-        (0x20 => route_20: ReadWrite<u32>),
-        (0x24 => route_24: ReadWrite<u32>),
-        (0x28 => route_28: ReadWrite<u32>),
-        (0x2c => route_2c: ReadWrite<u32>),
-        (0x30 => route_30: ReadWrite<u32>),
+        /// Written `0x000`.
+        (0x10 => route_10: WriteOnly<u32>),
+        /// Written `0x3fd`.
+        (0x14 => route_14: WriteOnly<u32>),
+        /// Written `0x3fa`.
+        (0x18 => route_18: WriteOnly<u32>),
+        /// Written `0x3ff`.
+        (0x1c => route_1c: WriteOnly<u32>),
+        /// Written `0x01b`.
+        (0x20 => route_20: WriteOnly<u32>),
+        /// Written `0x05b`.
+        (0x24 => route_24: WriteOnly<u32>),
+        /// Written `0x0b6`.
+        (0x28 => route_28: WriteOnly<u32>),
+        /// Written `0x10a`.
+        (0x2c => route_2c: WriteOnly<u32>),
+        /// Written `0x12c`.
+        (0x30 => route_30: WriteOnly<u32>),
         (0x34 => @END),
     }
 }
 
 const CLOCK_RESET_BASE: usize = 0x0aa8_0000;
+/// The vendor's interrupt routing words; the firmware does not write them.
+#[allow(dead_code)]
+const INTERRUPT_ROUTING_BASE: usize = 0x0abb_0000;
 const SYSTEM_CONTROL_BASE: usize = 0x0a98_0000;
 const TIMERS_BASE: usize = 0x0ac0_0000;
 const PLATFORM_CONTROL_BASE: usize = 0x0ac8_0000;

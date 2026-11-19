@@ -91,13 +91,13 @@ impl RatePolicies {
         }
 
         if data[4..]
-            .chunks_exact(POLICY_SIZE)
+            .as_chunks::<POLICY_SIZE>().0.iter()
             .any(|entry| usize::from(entry[0]) >= POLICY_COUNT)
         {
             return Err(InstallError::InvalidIndex);
         }
 
-        for entry in data[4..].chunks_exact(POLICY_SIZE) {
+        for entry in data[4..].as_chunks::<POLICY_SIZE>().0 {
             let index = usize::from(entry[0]);
             let mut bytes = [0_u8; POLICY_SIZE];
             bytes.copy_from_slice(entry);

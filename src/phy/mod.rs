@@ -568,10 +568,7 @@ pub fn advance_awake_station_tx() -> bool {
     if retained_state != 0 {
         crate::mac::reprogram_after_channel();
     }
-    if state == 3 && !set_packet_receive_enabled(true, 100_000) {
-        return false;
-    }
-    true
+    !(state == 3 && !set_packet_receive_enabled(true, 100_000))
 }
 
 /// Exact `phy_cal_step_start` used by `mac_radio_stop` after command 7 has

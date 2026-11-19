@@ -13,24 +13,89 @@
 use core::cell::Cell;
 use critical_section::Mutex;
 use tock_registers::interfaces::{Readable, Writeable};
-use tock_registers::register_structs;
-use tock_registers::registers::{ReadOnly, ReadWrite};
+use tock_registers::registers::{ReadOnly, ReadWrite, WriteOnly};
+use tock_registers::{register_bitfields, register_structs};
+
+register_bitfields! {
+    u32,
+    /// One bit per source in `ACKNOWLEDGE`, `ENABLE`, `PENDING` and
+    /// `RAW_STATE`. Names of the form `IRQn` mark sources whose owner is not
+    /// known. Unlisted sources were never seen and are never enabled.
+    InterruptSources [
+        /// Debug UART transmit-empty. Level, and pending whenever nothing is
+        /// being sent: an image that enables it and prints nothing never
+        /// sleeps. Not enabled; the UART is not wired out.
+        UART_TX OFFSET(0) NUMBITS(1) [],
+        /// Debug UART receive. Not enabled.
+        UART_RX OFFSET(2) NUMBITS(1) [],
+        /// Owner unknown. Not enabled.
+        IRQ4 OFFSET(4) NUMBITS(1) [],
+        /// Timer 1 one-shot expiry. Acknowledged after every sleep.
+        TIMER1 OFFSET(6) NUMBITS(1) [],
+        /// Owner unknown; pending as soon as it is enabled. Not enabled.
+        IRQ9 OFFSET(9) NUMBITS(1) [],
+        /// Host interface, level. The causes are in HIF `STATUS`; the source
+        /// is re-armed only after every cause is acknowledged.
+        HIF OFFSET(13) NUMBITS(1) [],
+        /// AES engine completion. Which direction uses which of the two lines
+        /// is not established.
+        AES_18 OFFSET(18) NUMBITS(1) [],
+        /// AES engine completion, second line.
+        AES_20 OFFSET(20) NUMBITS(1) [],
+        /// Owner unknown. Not enabled.
+        IRQ21 OFFSET(21) NUMBITS(1) [],
+        /// The MAC event line, routed to FIQ by `CONFIGURATION`. It ends a
+        /// wait for interrupt but never shows in `PENDING` or `RAW_STATE`,
+        /// and enabling it as an IRQ changes nothing.
+        MAC_FIQ OFFSET(22) NUMBITS(1) [],
+        /// Owner unknown; pending as soon as it is enabled. Not enabled.
+        IRQ24 OFFSET(24) NUMBITS(1) [],
+        /// TSF adjustment (inferred). Enabled; its handler writes back
+        /// `TSF_CONTROL` masked with `0x1f00_0003`. Never seen pending,
+        /// because the firmware never adjusts the TSF.
+        TSF OFFSET(26) NUMBITS(1) [],
+        /// TX error events. Not enabled.
+        TX_ERROR OFFSET(27) NUMBITS(1) [],
+        /// Set while the MAC event FIFO holds events (inferred): a level view
+        /// of the same events the FIQ line signals. Acknowledging it stopped
+        /// reception, so it is never enabled; the main loop drains the FIFO.
+        MAC_EVENTS OFFSET(28) NUMBITS(1) [],
+    ],
+    /// The firmware writes `0x1600_a037`; the low 24 bits are not
+    /// described.
+    InterruptConfiguration [
+        /// Source routed to the FIQ output.
+        FIQ_SOURCE OFFSET(24) NUMBITS(8) [
+            /// The MAC event line.
+            MAC = 0x16
+        ],
+    ],
+}
 
 register_structs! {
     InterruptController {
-        (0x00 => control: ReadWrite<u32>),
+        /// Controller enable. Written 1 at reset.
+        (0x00 => control: WriteOnly<u32>),
         /// Write one bits to acknowledge pending sources.
-        (0x04 => acknowledge: ReadWrite<u32>),
-        (0x08 => vector_base: ReadWrite<u32>),
-        (0x0c => enable: ReadWrite<u32>),
+        (0x04 => acknowledge: WriteOnly<u32, InterruptSources::Register>),
+        /// Written `BASE << 9`: an encoded word, not a CPU address.
+        (0x08 => vector_base: WriteOnly<u32>),
+        /// Bit n lets source n reach the CPU.
+        (0x0c => enable: ReadWrite<u32, InterruptSources::Register>),
         (0x10 => _reserved0),
-        (0x14 => clear_14: ReadWrite<u32>),
-        /// The top byte selects the FIQ source (0x16, the MAC).
-        (0x18 => configuration: ReadWrite<u32>),
+        /// Written all-ones at reset, together with an all-ones acknowledge.
+        /// Function unknown.
+        (0x14 => clear_14: WriteOnly<u32>),
+        /// The top byte selects the FIQ source: 22 (`0x16`), the MAC.
+        (0x18 => configuration: WriteOnly<u32, InterruptConfiguration::Register>),
         (0x1c => _reserved1),
         /// Pending sources among the enabled ones.
-        (0x20 => pending: ReadOnly<u32>),
-        (0x24 => @END),
+        (0x20 => pending: ReadOnly<u32, InterruptSources::Register>),
+        /// Raw state of the sources, before the enable mask: the only way to
+        /// see a source that is pending but disabled. Source 22, routed to
+        /// FIQ, does not appear. The firmware does not read it.
+        (0x24 => raw_state: ReadOnly<u32, InterruptSources::Register>),
+        (0x28 => @END),
     }
 }
 

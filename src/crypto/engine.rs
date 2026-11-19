@@ -8,8 +8,8 @@ use super::{CCMP_HEADER_LEN, CCMP_MIC_LEN, CcmpError};
 #[cfg(target_arch = "arm")]
 use tock_registers::{
     interfaces::{Readable, Writeable},
-    register_structs,
-    registers::ReadWrite,
+    register_bitfields, register_structs,
+    registers::{ReadWrite, WriteOnly},
 };
 
 /// One CCMP transfer, apart from the frame it works on.
@@ -80,14 +80,36 @@ fn hardware_aad_stream(aad: &[u8; 30], aad_length: usize) -> Result<[u8; 32], Cc
 }
 
 #[cfg(target_arch = "arm")]
+register_bitfields! {
+    u32,
+    /// Read side of `COMMAND_STATUS`. Writes are command words.
+    AesStatus [
+        /// Authenticated result. Sampled after the completion interrupt of a
+        /// decryption: set when the MIC matched.
+        AUTH_OK OFFSET(0) NUMBITS(1) [],
+        /// Busy: a command written now is not accepted. Wait for it to clear
+        /// before every command.
+        BUSY OFFSET(12) NUMBITS(1) [],
+        /// The FIFO accepts words. Later stages wait for it as well.
+        FIFO_READY OFFSET(13) NUMBITS(1) [],
+    ],
+}
+
+#[cfg(target_arch = "arm")]
 register_structs! {
     AesRegisters {
-        (0x00 => command_status: ReadWrite<u32>),
-        (0x04 => fifo: ReadWrite<u32>),
-        (0x08 => init_port: ReadWrite<u32>),
+        /// Write a command word; read status.
+        (0x00 => command_status: ReadWrite<u32, AesStatus::Register>),
+        /// Little-endian key, CCM context and AAD words.
+        (0x04 => fifo: WriteOnly<u32>),
+        /// Initialization stream; see the start-up self-test.
+        (0x08 => init_port: WriteOnly<u32>),
         (0x0c => _reserved),
+        /// DMA source, `cpu & 0xf6ff_ffff`.
         (0x10 => source: ReadWrite<u32>),
+        /// DMA destination, same encoding.
         (0x14 => destination: ReadWrite<u32>),
+        /// Payload length in octets, excluding CCMP header and MIC.
         (0x18 => length: ReadWrite<u32>),
         (0x1c => @END),
     }

@@ -10,41 +10,80 @@ use crate::radio::{PendingIndication, RxToken};
 use tock_registers::interfaces::{Readable, Writeable};
 use tock_registers::register_bitfields;
 use tock_registers::register_structs;
-use tock_registers::registers::ReadWrite;
+use tock_registers::registers::{ReadOnly, ReadWrite, WriteOnly};
 
 register_bitfields![
     u32,
+    /// The firmware writes `((length + 1) & 0x1ffe) | 1` with the sequence,
+    /// which rounds the length up to even and sets `OWN`.
     DescriptorControl [
-        LENGTH OFFSET(0) NUMBITS(13) [],
+        /// Set to hand the descriptor to the engine; the engine clears it
+        /// once it has fetched the descriptor.
+        OWN OFFSET(0) NUMBITS(1) [],
+        /// Transfer length in 2-byte units.
+        LENGTH OFFSET(1) NUMBITS(12) [],
+        /// Bits 14:13 of the message's WSM ID, before the firmware rewrites
+        /// the ID's sequence number.
         SEQUENCE OFFSET(13) NUMBITS(2) []
     ],
     HifControl [
+        /// Written `0x7ff`, or `0x7f7` if bit 10 of this register already
+        /// reads set before the write. The firmware records the written value
+        /// ANDed with `0x7f8` but does not apply it to output lengths.
         LENGTH_MASK OFFSET(0) NUMBITS(11) []
+    ],
+    /// Only these two causes schedule work.
+    HifStatus [
+        /// A firmware-to-host transfer finished.
+        TX_DONE OFFSET(1) NUMBITS(1) [],
+        /// A host-to-firmware message is ready.
+        RX_READY OFFSET(2) NUMBITS(1) []
+    ],
+    HifStartup [
+        /// Polled until clear before the startup indication is sent. The
+        /// agent that clears it has not been identified.
+        WAIT OFFSET(10) NUMBITS(1) []
     ]
 ];
 
 register_structs! {
     Descriptor {
+        /// Bus address of the buffer (`cpu & 0xf6ff_ffff`).
         (0x00 => address: ReadWrite<u32>),
+        /// Length, ownership and sequence.
         (0x04 => control: ReadWrite<u32, DescriptorControl::Register>),
         (0x08 => @END),
     },
 
     RxShared {
+        /// Host-to-firmware descriptors. Descriptors 0–29 start with the
+        /// `0x660`-byte input buffers and 30 and 31 start empty; as the
+        /// firmware returns buffers it refills the ring in turn, so all 32
+        /// come into use.
         (0x00 => descriptors: [Descriptor; 32]),
         (0x100 => @END),
     },
 
     HifShared {
+        /// Firmware-to-host descriptors. Each points at a `0x180`-byte output
+        /// buffer or, for a received frame, straight at its RX FIFO slot.
         (0x00 => tx: [Descriptor; 4]),
+        /// Length mask.
         (0x20 => control: ReadWrite<u32, HifControl::Register>),
-        (0x24 => status: ReadWrite<u32>),
-        (0x28 => interrupt_ack: ReadWrite<u32, HifControl::Register>),
+        /// Pending causes; raise IRQ 13.
+        (0x24 => status: ReadOnly<u32, HifStatus::Register>),
+        /// Write the causes read from `STATUS` to clear them. Re-arming IRQ 13
+        /// before every cause is acknowledged loses events.
+        (0x28 => interrupt_ack: WriteOnly<u32, HifStatus::Register>),
+        /// Bus address of the fatal-exception message buffer.
         (0x2c => emergency_address: ReadWrite<u32>),
+        /// Descriptor control word for the fatal-exception message.
         (0x30 => emergency_control: ReadWrite<u32, DescriptorControl::Register>),
-        (0x34 => startup_status: ReadWrite<u32>),
+        /// Startup handshake.
+        (0x34 => startup_status: ReadOnly<u32, HifStartup::Register>),
         (0x38 => _reserved1),
-        (0x40 => activation: ReadWrite<u32>),
+        /// Read once during the host handshake; the value is discarded.
+        (0x40 => activation: ReadOnly<u32>),
         (0x44 => @END),
     }
 }
@@ -457,9 +496,7 @@ impl Transport {
                 descriptor
                     .address
                     .set(unsafe { known_dma_bus_address(address) });
-                descriptor
-                    .control
-                    .write(DescriptorControl::LENGTH.val((RX_BUFFER_SIZE as u32 + 1) & 0x1fff));
+                descriptor.control.set((RX_BUFFER_SIZE as u32 + 1) & 0x1fff);
             } else {
                 queues.rx_buffers[index] = 0;
                 descriptor.address.set(0);
@@ -474,9 +511,7 @@ impl Transport {
         crate::interrupts::rearm(HIF_IRQ);
         postcode(0x4849_4e04);
 
-        shared
-            .interrupt_ack
-            .write(HifControl::LENGTH_MASK.val(0x07ff));
+        shared.interrupt_ack.set(0x07ff);
         postcode(0x4849_4e05);
         let control = if shared.control.get() & (1 << 10) != 0 {
             0x07f7
@@ -688,7 +723,7 @@ impl Transport {
         producer_descriptor.address.set(bus_address);
         producer_descriptor
             .control
-            .write(DescriptorControl::LENGTH.val((RX_BUFFER_SIZE as u32 + 1) & 0x1fff));
+            .set((RX_BUFFER_SIZE as u32 + 1) & 0x1fff);
         self.state.rx_producer = producer.wrapping_add(1);
     }
 

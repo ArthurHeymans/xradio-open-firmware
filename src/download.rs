@@ -72,12 +72,20 @@ pub fn section_entry_allowed(entry: usize) -> bool {
 
 #[repr(C)]
 pub struct Control {
+    /// The loader writes `0x1234_5678` ("I am here"); the host answers with
+    /// the image size in bytes.
     image_size: u32,
+    /// Cleared by the loader.
     flags: u32,
+    /// Host: bytes written into the FIFO so far.
     put: u32,
+    /// Loader: progress, for debugging.
     trace_pc: u32,
+    /// Loader: bytes consumed from the FIFO so far.
     get: u32,
+    /// Pending, then the final result; see the status table.
     status: u32,
+    /// Loader debug words; `+0x18` holds the last word read.
     debug: [u32; 26],
 }
 

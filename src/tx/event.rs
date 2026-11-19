@@ -6,6 +6,37 @@ use super::*;
 #[cfg(target_arch = "arm")]
 pub(crate) const MAC_FATAL_MAGIC: u32 = 0x5852_4651;
 
+tock_registers::register_bitfields! {
+    u32,
+    /// Bits 31, 30, 26:23 and 7 are flags; the rest are small fields.
+    pub(crate) MacEventWord [
+        /// TX status for completion events (bit 24); other classes use these
+        /// bits differently.
+        STATUS OFFSET(0) NUMBITS(6) [],
+        /// Set for each received frame. The firmware reads `PHY_SIDEBAND` once
+        /// per such event.
+        SIDEBAND OFFSET(7) NUMBITS(1) [],
+        /// Event class, for example `0x37` for a pipe event.
+        TYPE OFFSET(8) NUMBITS(6) [],
+        /// Decoded as the event's phase; the meaning is not established.
+        PHASE OFFSET(16) NUMBITS(2) [],
+        /// Pipe the event refers to.
+        PIPE OFFSET(18) NUMBITS(2) [],
+        /// Pipe service requested; consult the pipe scheduler word.
+        SERVICE OFFSET(23) NUMBITS(1) [],
+        /// Carries a terminal TX status in `STATUS`.
+        COMPLETION OFFSET(24) NUMBITS(1) [],
+        /// `PIPE` is valid; latched for type `0x37`.
+        PIPE_VALID OFFSET(25) NUMBITS(1) [],
+        /// Beacon event.
+        BEACON OFFSET(26) NUMBITS(1) [],
+        /// Fatal MAC condition. The firmware records a postmortem and stops.
+        FATAL OFFSET(30) NUMBITS(1) [],
+        /// The FIFO was empty; the rest of the word is not an event.
+        EMPTY OFFSET(31) NUMBITS(1) [],
+    ],
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MacEvent {
     pub raw: u32,
