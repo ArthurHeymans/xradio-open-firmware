@@ -60,15 +60,19 @@ register_structs! {
     }
 }
 
-register_structs! {
-    /// The MAC's receive status after a frame.
-    Trailer {
-        (0x00 => _reserved0),
-        (0x06 => rate: ReadOnly<u8>),
-        (0x07 => rcpi: ReadOnly<u8>),
-        (0x08 => @END),
-    }
+/// The MAC's receive status after a frame.
+#[repr(C)]
+struct Trailer {
+    _reserved: [u8; 6],
+    rate: ReadOnly<u8>,
+    rcpi: ReadOnly<u8>,
 }
+
+const _: () = {
+    assert!(core::mem::offset_of!(Trailer, rate) == 6);
+    assert!(core::mem::offset_of!(Trailer, rcpi) == 7);
+    assert!(size_of::<Trailer>() == 8);
+};
 
 /// The slot at FIFO `offset`. A slot past the producer holds whatever packet
 /// DMA left there; callers check the magic and length before trusting it.
