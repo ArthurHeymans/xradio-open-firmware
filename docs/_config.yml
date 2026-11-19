@@ -1,0 +1,7 @@
+title: XRadio firmware
+baseurl: /xradio-open-firmware
+defaults:
+  - scope:
+      path: ""
+    values:
+      layout: default

@@ -63,7 +63,7 @@ optional high support  0xfff00000...
 ```
 
 Do not use `objcopy -O binary` for this address space: the holes between these
-regions are enormous. [`cargo xtask image`](../xtask/src/image.rs) converts the ELF program
+regions are enormous. [`cargo xtask image`](https://github.com/ArthurHeymans/xradio-open-firmware/blob/main/xtask/src/image.rs) converts the ELF program
 headers into compact copy/fill records while retaining one build's linked
 addresses and entry point.
 

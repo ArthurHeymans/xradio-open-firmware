@@ -1,6 +1,6 @@
 # XR819 initialization constants
 
-[`src/init_data.rs`](../src/init_data.rs) holds these five vendor-derived byte arrays. They are literal constants, not generated at build time. The offsets identify their source in the XR01 `fw_xr819.bin` with SHA-256 `3e2462d476c9dfcb907cda1ba81d0a6d1bbee5e3207bdc1911ec5042d96fdfca`.
+[`src/init_data.rs`](https://github.com/ArthurHeymans/xradio-open-firmware/blob/main/src/init_data.rs) holds these five vendor-derived byte arrays. They are literal constants, not generated at build time. The offsets identify their source in the XR01 `fw_xr819.bin` with SHA-256 `3e2462d476c9dfcb907cda1ba81d0a6d1bbee5e3207bdc1911ec5042d96fdfca`.
 
 | Constant | File offset | Bytes | SHA-256 (in source byte order) |
 |---|---:|---:|---|
