@@ -9,11 +9,8 @@ use std::{
     process::Command,
 };
 fn build(root: &Path, target_dir: &Path, target: &str, bin: &str) -> Result<PathBuf> {
-    let status = Command::new("rustup")
+    let status = Command::new(env!("CARGO"))
         .args([
-            "run",
-            "nightly",
-            "cargo",
             "build",
             "--locked",
             "--release",
