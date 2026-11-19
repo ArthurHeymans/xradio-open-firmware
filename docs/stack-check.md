@@ -1,0 +1,9 @@
+# Checking the XR819 stacks
+
+`cargo xtask check` cross-builds the release runtime, then checks three entry points in that linked ELF. `cargo xtask image` only builds and packs. The check is a regression test, not a proof of maximum stack use on every hardware path.
+
+Rust emits `.stack_sizes`: one address and one frame size per record. That gives a cost, not a list of callers. In a trial with nightly `1d81eb4ad`, `-Cllvm-args=--call-graph-section` emitted 255 function records but none listed direct callees, even for functions containing calls. Using it alone would undercount. `cargo-call-stack`'s machine-code analysis is for Cortex-M, not this ARMv5TE target.
+
+Instead the checker reads the ELF with `object` and decodes direct calls with `unarm`. It respects the `$a`, `$t`, and `$d` mapping symbols so literal pools aren't decoded as instructions. It sums frames along direct call paths; an external direct tail branch conservatively retains the calling frame. A direct call cycle, register call, unresolved target or missing frame fails the check. Two assembly division helpers have no LLVM frame record: the checker recognizes their register saves and local allocation by matching their audited bodies, leaving only the direct call displacement variable.
+
+The roots are `kmain`, `_irq_handler` and `xr819_exception_terminal`. The latter two include the entry assembly's 24- and 56-byte register saves. The check doesn't simulate execution: compiler-generated internal branches are treated as staying in the same frame, and arbitrary computed writes to the program or stack pointer are not modelled. Changes to entry assembly, stack switching or indirect dispatch need review. The comparison build gave 6160 bytes for `kmain`, 48 for IRQ and 232 for exception handling, matching the former LLVM-tool check.

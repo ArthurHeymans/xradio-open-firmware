@@ -1,0 +1,13 @@
+name: Firmware checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  xr819:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install nightly --profile minimal --component rust-src
+      - run: cargo test --locked --workspace
+      - run: cargo xtask check
+      - run: cargo xtask image

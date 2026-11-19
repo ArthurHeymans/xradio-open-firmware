@@ -134,7 +134,7 @@ SECTIONS
     _sys_stack_size = _sys_stack_high_end - _sys_stack_low_end;
 
     ASSERT(_sys_stack_low_end == 0x0400a500,
-           "the SYS stack no longer starts where check-stack.py expects")
+           "the SYS stack no longer starts at the qualified address")
 
     ASSERT(ADDR(.text) + SIZEOF(.text) <= ORIGIN(ITCM) + LENGTH(ITCM),
            "XR819 image exceeds the ITCM")

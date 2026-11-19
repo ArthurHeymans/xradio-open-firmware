@@ -4,10 +4,11 @@ Rust firmware and bootloader for the Orange Pi Zero’s XR819. It speaks the `cw
 
 ```sh
 rustup component add rust-src --toolchain nightly
-cargo test --workspace
 cargo xtask image
 ```
 
-The image build needs `llvm-readobj` and `llvm-objdump` on `PATH` for the stack check. It writes `boot_xr819.bin` and `fw_xr819.bin` to `target/images/`. No vendor image is needed to build them. Keep your board’s original `sdd_xr819.bin` for calibration.
+This writes `boot_xr819.bin` and `fw_xr819.bin` to `target/images/`. No vendor image is needed to build them. Keep your board’s original `sdd_xr819.bin` for calibration.
+
+Before submitting a change, run `cargo test --workspace` and `cargo xtask check`. The latter checks the linked firmware’s [stack usage](docs/stack-check.md); neither command needs LLVM utilities on `PATH`.
 
 [Driver and board tests](docs/orange-pi-zero-smoke.md) · [Register reference](docs/xr819-hardware-reference.html) · [Initialization data](docs/init-data.md)

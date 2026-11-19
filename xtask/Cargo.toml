@@ -7,5 +7,5 @@ publish = false
 [dependencies]
 anyhow = "1"
 object = { version = "0.37.3", default-features = false, features = ["read_core", "elf", "std"] }
-regex = "1"
+unarm = { version = "2.3", default-features = false, features = ["arm", "thumb", "v5te"] }
 rustc-demangle = "0.1"

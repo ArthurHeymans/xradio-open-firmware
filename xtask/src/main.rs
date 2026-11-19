@@ -37,10 +37,13 @@ fn build(root: &Path, target_dir: &Path, target: &str, bin: &str) -> Result<Path
 }
 fn main() -> Result<()> {
     let mut args = env::args_os().skip(1);
-    ensure!(
-        args.next().as_deref() == Some("image".as_ref()),
-        "usage: cargo xtask image [output-directory]"
-    );
+    let command = args.next();
+    let check = match command.as_ref().and_then(|c| c.to_str()) {
+        Some("image") => false,
+        Some("check") => true,
+        _ => anyhow::bail!("usage: cargo xtask image [output-directory] | cargo xtask check"),
+    };
+    ensure!(!check || args.len() == 0, "check takes no arguments");
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
     let target = env::current_dir()?.join(
         env::var_os("CARGO_TARGET_DIR")
@@ -53,7 +56,9 @@ fn main() -> Result<()> {
         .unwrap_or_else(|| target.join("images"));
     ensure!(args.next().is_none(), "too many arguments");
     let fw = build(root, &target, "thumbv5te-none-eabi", "hif-startup")?;
-    stack::check(&fw)?;
+    if check {
+        return stack::check(&fs::read(fw)?);
+    }
     let fw = image::runtime(&fs::read(fw)?)?;
     let boot = build(
         root,
