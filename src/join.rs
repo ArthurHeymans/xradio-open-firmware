@@ -52,6 +52,32 @@ pub fn activate_sta(
     Ok(())
 }
 
+/// START in mode 2, the host's listen mode: receive on a channel without
+/// joining or beaconing, as the idle state after RESET does on the current
+/// one. No interface becomes active, so RESET has nothing to undo.
+#[cfg(target_arch = "arm")]
+pub fn listen(
+    engine: &crate::tx::TxEngine,
+    scanning: bool,
+    interface: u8,
+    request: &crate::wsm::StartRequest<'_>,
+) -> Result<(), JoinError> {
+    if interface > 1 || request.mode != 2 || request.band != 0 {
+        return Err(JoinError::Unsupported);
+    }
+    if scanning {
+        return Err(JoinError::ScanActive);
+    }
+    if crate::vif::any_active() || !crate::tx::probe_runtime_quiescent(engine) {
+        return Err(JoinError::VifState);
+    }
+    crate::phy::run_channel_transition(request.channel_number, 100_000)
+        .map_err(|_| JoinError::Channel)?;
+    crate::mmio::MAC.write32(crate::platform::mac_register(0x0044), 0);
+    crate::mac::program_scan_station_mode();
+    Ok(())
+}
+
 /// START: an access point on `interface`, programmed as a joined station
 /// is but with no BSSID entry: it receives what is sent to its own address.
 #[cfg(target_arch = "arm")]

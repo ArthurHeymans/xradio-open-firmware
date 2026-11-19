@@ -523,11 +523,15 @@ fn dispatch_single_request(
                 let status = request
                     .ok()
                     .and_then(|request| {
+                        let scanning = scan.active_interface().is_some();
+                        if request.mode == 2 {
+                            return join::listen(events, scanning, request_if_id, &request).ok();
+                        }
                         ap.start(
                             events,
                             crypto,
                             radio,
-                            scan.active_interface().is_some(),
+                            scanning,
                             configuration.station_id(),
                             request_if_id,
                             &request,

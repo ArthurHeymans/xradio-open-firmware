@@ -69,8 +69,8 @@ impl AccessPoint {
         interface: u8,
         request: &crate::wsm::StartRequest<'_>,
     ) -> Result<(), ApError> {
-        // The host's listen mode (2) and P2P group owners (1) are not
-        // supported; refusing them leaves a running access point alone.
+        // P2P group owners (1) are not supported, and listen mode (2) is
+        // `join::listen`; refusing them leaves a running access point alone.
         if request.mode != 0 || request.band != 0 {
             return Err(ApError::Join(crate::join::JoinError::Unsupported));
         }
