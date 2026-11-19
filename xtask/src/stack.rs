@@ -84,7 +84,7 @@ fn edges(code: &[u8], start: u32, modes: &Map<ParseMode>) -> Result<BTreeSet<u32
             let part = &code[(addr - start) as usize..(end - start) as usize];
             let width = if mode == ParseMode::Arm { 4 } else { 2 };
             ensure!(
-                addr % width == 0 && end % width == 0,
+                addr.is_multiple_of(width) && end.is_multiple_of(width),
                 "unaligned instruction at {addr:#x}"
             );
             let mut parser = Parser::new(

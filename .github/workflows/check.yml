@@ -16,7 +16,8 @@ jobs:
         with:
           persist-credentials: false
       - run: cargo fmt --all -- --check
-      - run: cargo clippy --locked --workspace --lib --tests
+      - run: cargo clippy --locked -p xtask --all-targets -- -D warnings
+      - run: cargo clippy --locked -p xr819-firmware --lib --tests
       # The two firmware executables target different ARM ISAs; xtask builds
       # them below. Build the firmware library and the host packer natively.
       - run: cargo build --locked --workspace --lib --bin xtask

@@ -389,6 +389,11 @@ unsafe fn publish_exception_now<const N: usize>(registers: [u32; N], name: &[u8]
 /// configuration, scanned, delivered 31 beacons, then went silent mid-join
 /// with no record at all, leaving `BH status: terminated`, `Pending TX: 28`
 /// and an unanswered WSM 0x0006 as the only evidence.
+///
+/// # Safety
+/// The HIF shared registers and emergency output buffer must be accessible and
+/// owned by this firmware. No other publisher may use them during this call.
+/// The caller must halt without reusing the buffer now handed to the host.
 pub unsafe fn publish_halting_exception<const N: usize>(registers: [u32; N], name: &[u8]) {
     unsafe { publish_exception_now(registers, name) };
 }

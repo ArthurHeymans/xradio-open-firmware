@@ -67,38 +67,40 @@ const TEMPERATURE_FALLBACK: i32 = 38_000;
 
 impl PhyState {
     /// Values vendor `0x16a38`/`0x198f2`/`0x16ca4` establish at startup.
-    const STARTUP: Self = Self {
-        mode_state: Cell::new(2),
-        profile: Cell::new(0),
-        phase: Cell::new(2),
-        channel: Cell::new(7),
-        profile0_ready: Cell::new(0),
-        profile1_ready: Cell::new(0),
-        profile0_state: Cell::new(0),
-        auxiliary_state: Cell::new(0),
-        calibration_stage: Cell::new(0),
-        calibration_state: Cell::new(1),
-        reference_khz: Cell::new(26_000),
-        frequency_khz: Cell::new(2_442_000),
-        measurement_shift_state: Cell::new(0),
-        sample_width: Cell::new(10),
-        silicon_variant: Cell::new(0),
-        temperature_denominator: Cell::new(1000),
-        temperature_offset: Cell::new(0),
-        temperature: Cell::new(48_000),
-        retained_state: Cell::new(0),
-        state_scale: Cell::new(-1),
-        threshold: Cell::new(0),
-        pll_integer: Cell::new(0),
-        pll_fractional: Cell::new(0),
-        pll_channel: Cell::new(0),
-        power_limit_low_rate: Cell::new(0),
-        power_limit_high_rate: Cell::new(0),
-        tx_power_tenths_dbm: Cell::new(None),
-    };
+    const fn startup() -> Self {
+        Self {
+            mode_state: Cell::new(2),
+            profile: Cell::new(0),
+            phase: Cell::new(2),
+            channel: Cell::new(7),
+            profile0_ready: Cell::new(0),
+            profile1_ready: Cell::new(0),
+            profile0_state: Cell::new(0),
+            auxiliary_state: Cell::new(0),
+            calibration_stage: Cell::new(0),
+            calibration_state: Cell::new(1),
+            reference_khz: Cell::new(26_000),
+            frequency_khz: Cell::new(2_442_000),
+            measurement_shift_state: Cell::new(0),
+            sample_width: Cell::new(10),
+            silicon_variant: Cell::new(0),
+            temperature_denominator: Cell::new(1000),
+            temperature_offset: Cell::new(0),
+            temperature: Cell::new(48_000),
+            retained_state: Cell::new(0),
+            state_scale: Cell::new(-1),
+            threshold: Cell::new(0),
+            pll_integer: Cell::new(0),
+            pll_fractional: Cell::new(0),
+            pll_channel: Cell::new(0),
+            power_limit_low_rate: Cell::new(0),
+            power_limit_high_rate: Cell::new(0),
+            tx_power_tenths_dbm: Cell::new(None),
+        }
+    }
     /// Back to the startup values.
     fn reset(&self) {
-        let startup = Self::STARTUP;
+        let startup = Self::startup();
         self.mode_state.set(startup.mode_state.get());
         self.profile.set(startup.profile.get());
         self.phase.set(startup.phase.get());
@@ -133,7 +135,7 @@ impl PhyState {
     }
 }
 
-static PHY_STATE: Global<PhyState> = Global::new(PhyState::STARTUP);
+static PHY_STATE: Global<PhyState> = Global::new(PhyState::startup());
 
 pub fn state() -> &'static PhyState {
     &PHY_STATE
