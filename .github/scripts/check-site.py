@@ -4,7 +4,10 @@
 Fails on broken internal links or anchors, duplicate element IDs, pages
 without a title, empty navigation links and unrendered Markdown or Liquid.
 
-Usage: check-site.py SITE_DIRECTORY
+Usage: check-site.py SITE_DIRECTORY [BASEURL]
+
+BASEURL is the site's `baseurl`, such as /xradio-open-firmware; links that
+start with it are resolved from SITE_DIRECTORY.
 """
 
 import html.parser
@@ -54,12 +57,15 @@ def load(root: str) -> dict[str, tuple[Page, str]]:
     return pages
 
 
-def target_of(root: str, page: str, link: str) -> tuple[str, str]:
+def target_of(root: str, page: str, link: str, baseurl: str) -> tuple[str, str]:
     url = urllib.parse.urlparse(link)
-    if url.path.startswith("/"):
-        target = os.path.join(root, url.path.lstrip("/"))
-    elif url.path:
-        target = os.path.normpath(os.path.join(os.path.dirname(page), url.path))
+    path = url.path
+    if baseurl and (path == baseurl or path.startswith(baseurl + "/")):
+        path = path[len(baseurl):] or "/"
+    if path.startswith("/"):
+        target = os.path.join(root, path.lstrip("/"))
+    elif path:
+        target = os.path.normpath(os.path.join(os.path.dirname(page), path))
     else:
         target = page
     if os.path.isdir(target):
@@ -67,7 +73,7 @@ def target_of(root: str, page: str, link: str) -> tuple[str, str]:
     return target, url.fragment
 
 
-def check(root: str) -> list[str]:
+def check(root: str, baseurl: str = "") -> list[str]:
     pages = load(root)
     problems = []
     for path, (page, text) in pages.items():
@@ -76,7 +82,7 @@ def check(root: str) -> list[str]:
         for link in page.links:
             if link.startswith(("http:", "https:", "data:", "mailto:")):
                 continue
-            target, fragment = target_of(root, path, link)
+            target, fragment = target_of(root, path, link, baseurl)
             if not os.path.exists(target):
                 problems.append(f"broken link in {name}: {link}")
             elif fragment and target in pages and fragment not in pages[target][0].ids:
@@ -95,11 +101,11 @@ def check(root: str) -> list[str]:
 
 
 def main() -> int:
-    if len(sys.argv) != 2:
+    if len(sys.argv) not in (2, 3):
         print(__doc__, file=sys.stderr)
         return 2
     try:
-        problems = check(sys.argv[1])
+        problems = check(sys.argv[1], sys.argv[2].rstrip("/") if len(sys.argv) == 3 else "")
     except OSError as error:
         print(f"cannot read the site: {error}", file=sys.stderr)
         return 2

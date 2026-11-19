@@ -106,7 +106,7 @@ impl BeaconFilter {
             return false;
         }
         entries
-            .as_chunks::<ENTRY_LEN>().0.iter()
+            .chunks_exact(ENTRY_LEN)
             .take(count)
             .zip(&mut self.entries)
             .for_each(|(raw, entry)| {

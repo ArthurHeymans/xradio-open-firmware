@@ -174,7 +174,7 @@ impl ThresholdTable {
     };
 
     fn parse(element: &[u8]) -> Option<Self> {
-        if element.len() < 2 || !(element.len() - 2).is_multiple_of(4) {
+        if element.len() < 2 || (element.len() - 2) % 4 != 0 {
             return None;
         }
         let mut table = Self {
@@ -268,7 +268,7 @@ impl SddCalibration {
     pub fn apply(&mut self, sdd: &[u8]) {
         let element = |id| sdd_element(sdd, id);
         fn halfwords(data: &[u8]) -> impl Iterator<Item = i16> + '_ {
-            data.as_chunks::<2>().0.iter()
+            data.chunks_exact(2)
                 .map(|pair| i16::from_le_bytes([pair[0], pair[1]]))
         }
         // Single values and pairs need the whole element; per-rate tables copy
