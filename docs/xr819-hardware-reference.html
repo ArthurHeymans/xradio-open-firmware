@@ -1,0 +1,1377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>XR819 802.11n MAC/PHY - hardware reference</title>
+<style>
+:root{
+  --bg:#fbfbf9;--fg:#1c1e21;--muted:#5b6470;--line:#d9dde3;--acc:#0a5c8a;
+  --c:#0f7b3e;--s:#9a6b00;--q:#8a1f4f;--code:#eef1f5;--warn:#fff4e0;
+  --ok:#eaf7ef;--bad:#fdecec;--hdr:#12263a;
+}
+*{box-sizing:border-box}
+body{margin:0;font:15px/1.55 -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--fg);background:var(--bg)}
+header{background:var(--hdr);color:#fff;padding:26px 22px}
+header h1{margin:0 0 6px;font-size:23px;line-height:1.25}
+header p{margin:0;color:#c9d6e2;font-size:13.5px;max-width:70ch}
+header .meta{margin-top:10px;font-size:12.5px;color:#9fb3c8}
+nav{position:sticky;top:0;background:#fff;border-bottom:1px solid var(--line);padding:7px 22px;font-size:13px;z-index:3}
+nav a{margin-right:13px;color:var(--acc);text-decoration:none;display:inline-block}
+nav a:hover{text-decoration:underline}
+main{max-width:1080px;margin:0 auto;padding:18px 22px 90px}
+h2{font-size:20px;border-bottom:2px solid var(--line);padding-bottom:4px;margin-top:46px}
+h3{font-size:16.5px;margin-top:30px;color:#243b53}
+h4{font-size:14.5px;margin:20px 0 6px}
+p{margin:9px 0}
+table{border-collapse:collapse;width:100%;margin:12px 0;font-size:13px}
+th,td{border:1px solid var(--line);padding:5px 7px;vertical-align:top;text-align:left}
+th{background:#eef1f5;font-weight:600}
+tbody tr:nth-child(even) td{background:#f8f9fb}
+td.n,th.n{text-align:right;white-space:nowrap}
+td.a,th.a{white-space:nowrap}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:12px 0}
+.scroll table{margin:0;min-width:520px}
+code,pre{font-family:"JetBrains Mono",SFMono-Regular,Menlo,Consolas,monospace}
+code{background:var(--code);padding:1px 4px;border-radius:3px;font-size:12.5px;word-break:break-word}
+pre{background:#0f1720;color:#e6edf3;padding:12px 14px;border-radius:6px;overflow-x:auto;font-size:12.5px;line-height:1.45}
+pre code{background:none;color:inherit;padding:0}
+.seq{background:#f4f7fa;border:1px solid var(--line);color:#16222e;padding:12px 14px;border-radius:6px;overflow-x:auto;font-family:"JetBrains Mono",SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:1.5;white-space:pre}
+.tag{display:inline-block;font-size:10.5px;font-weight:700;letter-spacing:.04em;padding:1px 6px;border-radius:9px;vertical-align:2px;white-space:nowrap}
+.C{background:#dff5e6;color:var(--c);border:1px solid #9fd7b3}
+.S{background:#fff1cc;color:var(--s);border:1px solid #e6c65c}
+.Q{background:#f9dfe9;color:var(--q);border:1px solid #e39ab8}
+.box{border:1px solid var(--line);border-left:5px solid var(--acc);background:#fff;padding:11px 15px;margin:14px 0;border-radius:4px}
+.box.warn{border-left-color:#d48a00;background:var(--warn)}
+.box.ok{border-left-color:#1d8f4a;background:var(--ok)}
+.box.bad{border-left-color:#c0392b;background:var(--bad)}
+.small{font-size:12.5px;color:var(--muted)}
+.mono{font-family:"JetBrains Mono",SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px}
+.bits td:first-child{white-space:nowrap;font-family:"JetBrains Mono",SFMono-Regular,Menlo,Consolas,monospace}
+figure{margin:16px 0}
+figure svg{width:100%;height:auto;display:block}
+figcaption{font-size:12.5px;color:var(--muted);margin-top:6px}
+ul,ol{margin:8px 0 8px 18px;padding:0}
+li{margin:3px 0}
+dl{margin:10px 0}
+dt{font-weight:600;margin-top:8px}
+dd{margin:2px 0 0 16px}
+hr{border:0;border-top:1px solid var(--line);margin:26px 0}
+a{color:var(--acc)}
+@media(max-width:640px){
+  header{padding:20px 16px}
+  main{padding:14px 16px 70px}
+  nav{padding:6px 16px;max-height:96px;overflow-y:auto}
+  h2{font-size:18px}
+}
+</style>
+</head>
+<body>
+<header>
+<h1>XR819 802.11n MAC/PHY: hardware reference</h1>
+<p>XR819 registers as used by the vendor image and the Rust firmware. Names describe how software uses a word; they are not vendor names. A working packet path does not verify every bit or unused access mode.</p>
+<p class="meta">Revision 2 (2026-11-19) &middot; device: XR819 (cw1200-compatible) SDIO station/AP &middot; companion-code: xr819-firmware (Rust, no_std) &middot; sources: vendor container <code>fw_xr819.bin</code> SHA256 3e2462d4&hellip;fdfca, annotated decompilation, hardware runs on ARmv5TE-S (ARM966E-S) core</p>
+</header>
+<nav>
+<a href="#doc">Document</a>
+<a href="#map">Address map</a>
+<a href="#regs">Registers</a>
+<a href="#timers">Timers</a>
+<a href="#hif">HIF</a>
+<a href="#pdm">Packet DMA</a>
+<a href="#mac">MAC</a>
+<a href="#rings">TX rings</a>
+<a href="#aes">AES</a>
+<a href="#phy">PHY</a>
+<a href="#flows">Flows</a>
+<a href="#cookbook">Sequences</a>
+<a href="#evidence">Evidence</a>
+<a href="#unknowns">Unknowns</a>
+</nav>
+<main>
+
+<h2 id="doc">1. Document control</h2>
+
+<p>This reference describes the XR819 as seen from the CPU core that runs its firmware: the register aperture, the descriptor formats the hardware consumes, and the order in which software must touch them for each functional flow. It exists because the register-level behaviour of this device is not published. Everything here was derived from the shipped vendor image, its decompilation, and experiments on real silicon.</p>
+
+<h3>1.1 Scope</h3>
+<ul>
+<li>Covered: platform blocks (interrupt controller, system control, clock/reset, timers, platform control), host interface (HIF), packet DMA and receive FIFO, MAC mode/response/TSF registers, the four MAC TX pipes, the AES/CCMP engine, and the PHY/RF window as far as its register semantics are known.</li>
+<li>Not covered: SDIO host-side registers, RF transceiver internals, vendor upper-MAC algorithms (rate control, aggregation policy) except where they determine hardware sequencing.</li>
+<li>Register offsets are given relative to their block base. Absolute addresses are used where the firmware itself uses absolute addresses; that distinction matters and is called out where it occurs.</li>
+</ul>
+
+<h3>1.2 Confidence labels</h3>
+<div class="scroll">
+<table>
+<thead><tr><th class="a">Label</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td class="a"><span class="tag C">CONFIRMED</span></td><td>Evidence for the access, value, or measured effect, not a silicon specification. Access columns describe operations software uses. A write without a corresponding read does not establish a write-only register.</td></tr>
+<tr><td class="a"><span class="tag S">INFERRED</span></td><td>Follows from confirmed facts through one modelling step (register role from its use in a sequence, field boundary from a mask). A specific test that could falsify it is named in <a href="#unknowns">section 15</a> where one exists.</td></tr>
+<tr><td class="a"><span class="tag Q">HYPOTHESIS</span></td><td>Plausible reading of an address or value with no independent confirmation. Do not build on these without a test.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>1.3 How this document is organised</h3>
+<p>Section 2 is the address map. Sections 3 to 11 are the register reference, one block per section, grouped by function. Section 12 is the prose part: what each flow does, in what order, and which register writes are load-bearing. Section 13 collects the exact programming sequences as checklists, section 14 what has been measured on hardware, and section 15 what is still unknown. The appendices give the address-encoding rules, the WSM message identifiers and an evidence index.</p>
+
+<h2 id="map">2. Address map</h2>
+
+<p>The device exposes a sparse 32-bit physical address sparsely decoded into a handful of apertures. Code and data live in two tightly coupled memories (ITCM at 0, DTCM at <code>0x0400_0000</code>); packet memory is a separate SRAM bank reached at <code>0x0900_0000</code>; peripherals occupy <code>0x09c0_0000</code> to <code>0x0acc_0000</code>; a small high SRAM at <code>0xfff0_0000</code> holds the vendor bootstrap.</p>
+
+<figure>
+<svg viewBox="0 0 900 330" role="img" aria-label="XR819 block diagram: SDIO host, HIF, packet RAM, MAC, PHY/RF, CPU and support blocks">
+<defs>
+<style>
+.bx{fill:#ffffff;stroke:#9aa7b4;stroke-width:1.2;rx:5}
+.bx2{fill:#eef4f8;stroke:#0a5c8a;stroke-width:1.4}
+.lbl{font:12px -apple-system,Segoe UI,Roboto,sans-serif;fill:#16222e}
+.lblb{font:bold 12px -apple-system,Segoe UI,Roboto,sans-serif;fill:#12263a}
+.sm{font:10.5px -apple-system,Segoe UI,Roboto,sans-serif;fill:#4a5a6a}
+.ln{stroke:#55697c;stroke-width:1.2;fill:none}
+.arw{stroke:#55697c;stroke-width:1.2;fill:none;marker-end:url(#a)}
+</style>
+<marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+<path d="M0,0 L10,5 L0,10 z" fill="#55697c"/>
+</marker>
+</defs>
+<rect x="10" y="120" width="120" height="70" rx="5" fill="#ffffff" stroke="#9aa7b4"/>
+<text class="lblb" x="70" y="146" text-anchor="middle">Host</text>
+<text class="sm" x="70" y="162" text-anchor="middle">SDIO function</text>
+<text class="sm" x="70" y="176" text-anchor="middle">+ Linux cw1200</text>
+
+<rect x="160" y="112" width="120" height="86" class="bx2"/>
+<text class="lblb" x="220" y="134" text-anchor="middle">HIF</text>
+<text class="sm" x="220" y="150" text-anchor="middle">RX desc ring x32</text>
+<text class="sm" x="220" y="164" text-anchor="middle">TX desc ring x4</text>
+<text class="sm" x="220" y="178" text-anchor="middle">IRQ 13</text>
+
+<rect x="312" y="86" width="150" height="138" class="bx"/>
+<text class="lblb" x="387" y="108" text-anchor="middle">Packet SRAM</text>
+<text class="sm" x="387" y="126" text-anchor="middle">runtime 0x0900_7000</text>
+<text class="sm" x="387" y="140" text-anchor="middle">HIF in 30 x 0x660</text>
+<text class="sm" x="387" y="154" text-anchor="middle">HIF out 4 x 0x180</text>
+<text class="sm" x="387" y="168" text-anchor="middle">TX cmd 4 x 4 x 0x54</text>
+<text class="sm" x="387" y="182" text-anchor="middle">responses + rate RAM</text>
+<text class="sm" x="387" y="196" text-anchor="middle">RX FIFO 0x0940_0000</text>
+
+<rect x="494" y="86" width="150" height="138" class="bx"/>
+<text class="lblb" x="569" y="108" text-anchor="middle">MAC</text>
+<text class="sm" x="569" y="126" text-anchor="middle">packet DMA (RX)</text>
+<text class="sm" x="569" y="140" text-anchor="middle">4 TX pipes</text>
+<text class="sm" x="569" y="154" text-anchor="middle">response engine</text>
+<text class="sm" x="569" y="168" text-anchor="middle">TSF / EDCA</text>
+<text class="sm" x="569" y="182" text-anchor="middle">address match</text>
+<text class="sm" x="569" y="196" text-anchor="middle">event FIFO</text>
+
+<rect x="676" y="112" width="120" height="86" class="bx"/>
+<text class="lblb" x="736" y="134" text-anchor="middle">PHY + RF</text>
+<text class="sm" x="736" y="150" text-anchor="middle">baseband</text>
+<text class="sm" x="736" y="164" text-anchor="middle">calibration</text>
+<text class="sm" x="736" y="178" text-anchor="middle">2.4 GHz radio</text>
+
+<rect x="676" y="18" width="120" height="60" class="bx"/>
+<text class="lblb" x="736" y="38" text-anchor="middle">AES / CCMP</text>
+<text class="sm" x="736" y="54" text-anchor="middle">IRQ 18 / 20</text>
+<text class="sm" x="736" y="68" text-anchor="middle">0x09c5_0000</text>
+
+<rect x="160" y="18" width="302" height="60" class="bx"/>
+<text class="lblb" x="311" y="38" text-anchor="middle">CPU: ARM966E-S, ITCM 0 / DTCM 0x0400_0000</text>
+<text class="sm" x="311" y="54" text-anchor="middle">firmware image: low Thumb at 0, high support at 0xfff0_0000</text>
+<text class="sm" x="311" y="68" text-anchor="middle">interrupt controller, timers, clock/reset, platform control</text>
+
+<line x1="130" y1="155" x2="158" y2="155" class="arw"/>
+<line x1="280" y1="140" x2="310" y2="140" class="arw"/>
+<line x1="280" y1="170" x2="310" y2="170" class="arw"/>
+<line x1="462" y1="140" x2="492" y2="140" class="arw"/>
+<line x1="462" y1="170" x2="492" y2="170" class="arw"/>
+<line x1="644" y1="155" x2="674" y2="155" class="arw"/>
+<line x1="569" y1="86" x2="569" y2="80" class="ln"/>
+<line x1="569" y1="80" x2="736" y2="80" class="ln"/>
+<line x1="736" y1="80" x2="736" y2="78" class="arw"/>
+<text class="sm" x="640" y="76" text-anchor="middle">payload DMA</text>
+<text class="sm" x="600" y="250" text-anchor="middle">RX: MAC writes FIFO slots, CPU consumes through 0x09c0_0604/0608</text>
+<text class="sm" x="600" y="266" text-anchor="middle">TX: CPU builds descriptors in packet SRAM, MAC fetches through 0x09c6_xxxx rings</text>
+<text class="sm" x="600" y="282" text-anchor="middle">HIF: CPU publishes descriptors at 0x0ab0_0000 / 0x0ab0_0100, host DMA reads buffers</text>
+</svg>
+<figcaption>Figure 1. Data path overview. Packet memory is the only place CPU, HIF engine, packet DMA, TX pipes and AES engine all touch the same bytes, which is why every address that crosses a hardware boundary has a defined encoding (appendix A).</figcaption>
+</figure>
+
+<h3>2.1 Aperture summary</h3>
+<div class="scroll">
+<table>
+<thead><tr><th class="a">Region</th><th class="a">Base</th><th class="a">Extent</th><th>Contents</th><th class="a">Sec.</th></tr></thead>
+<tbody>
+<tr><td>ITCM</td><td class="a mono">0x0000_0000</td><td class="a mono">0x0001_b3d0</td><td>Vendor main image: Thumb code and read-only data. Rust images occupy the same window.</td><td class="a">12.1</td></tr>
+<tr><td>DTCM</td><td class="a mono">0x0400_0000</td><td class="a mono">0x0000_a000 usable</td><td>Initialized DTCM copies (<code>0x10f8</code> + <code>0x0f80</code> bytes in the container), zero-filled runtime state, stacks. Nothing above <code>0x0400_c000</code> reads back.</td><td class="a">12.1</td></tr>
+<tr><td>Packet SRAM (runtime)</td><td class="a mono">0x0900_7000</td><td class="a mono">0x0000_f630</td><td>HIF buffers, TX command slots, response commands and pointers, rate RAM, software records.</td><td class="a">2.2</td></tr>
+<tr><td>RX FIFO</td><td class="a mono">0x0940_0000</td><td class="a mono">0x0000_8000</td><td>Storage for the packet-DMA receive ring; logical cursor extent is <code>0x7000</code> with <code>0x1000</code> of spill.</td><td class="a">8</td></tr>
+<tr><td>MAC</td><td class="a mono">0x09c0_0000</td><td class="a mono">0x0000_2000</td><td>Sparse: used through <code>+0x1a2b0</code>-range offsets in vendor code, main cluster below <code>+0x1500</code>.</td><td class="a">9</td></tr>
+<tr><td>AES / CCMP</td><td class="a mono">0x09c5_0000</td><td class="a mono">0x0000_001c</td><td>Command/status, input FIFO, DMA source/destination/length.</td><td class="a">10</td></tr>
+<tr><td>TX pipe rings</td><td class="a mono">0x09c6_0000</td><td class="a mono">0x0000_0200</td><td>Four rings of <code>0x80</code>: duration FIFO, command base/length, GO, completion word.</td><td class="a">9.6</td></tr>
+<tr><td>Interrupt controller</td><td class="a mono">0x0a88_0000</td><td class="a mono">0x0000_0024</td><td>Enable, acknowledge, pending, raw state, FIQ source select.</td><td class="a">3</td></tr>
+<tr><td>Debug UART</td><td class="a mono">0x0a90_0000</td><td class="a mono">0x0000_0008</td><td>Vendor diagnostic console; not wired out on the boards tested. IRQ 0 and 2.</td><td class="a">3.3</td></tr>
+<tr><td>System control</td><td class="a mono">0x0a98_0000</td><td class="a mono">0x0000_000c</td><td>Bus/memory control, system status.</td><td class="a">4</td></tr>
+<tr><td>Clock / reset</td><td class="a mono">0x0aa8_0000</td><td class="a mono">0x0000_004c</td><td>Clock masks, eight address-remap windows, feature control.</td><td class="a">5</td></tr>
+<tr><td>HIF RX descriptors</td><td class="a mono">0x0ab0_0000</td><td class="a mono">0x0000_0100</td><td>32 host-to-firmware descriptors (8 bytes each).</td><td class="a">6</td></tr>
+<tr><td>HIF shared</td><td class="a mono">0x0ab0_0100</td><td class="a mono">0x0000_0044</td><td>4 TX descriptors, control/status/ack, emergency channel, startup status, activation.</td><td class="a">6</td></tr>
+<tr><td>PHY / RF</td><td class="a mono">0x0ab8_0000</td><td class="a mono">0x0006_0000</td><td>Baseband, RF and calibration registers; the vendor loader also copies four tables into this window.</td><td class="a">10.2</td></tr>
+<tr><td>Timers</td><td class="a mono">0x0ac0_0000</td><td class="a mono">0x0000_0028</td><td>Two 1 MHz timers; timer 0 is the firmware clock, timer 1 is the sleep/one-shot source (IRQ 6).</td><td class="a">5.2</td></tr>
+<tr><td>Platform control</td><td class="a mono">0x0ac8_0000</td><td class="a mono">0x0000_00c0</td><td>Clock gating, ready status, analog parameters, the <code>+0xbc</code> pre-init transition.</td><td class="a">5.3</td></tr>
+<tr><td>High SRAM</td><td class="a mono">0xfff0_0000</td><td class="a mono">0x0001_4000</td><td>Vendor bootstrap and high support routines (debug UART handlers, early ARM code).</td><td class="a">12.1</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3 id="map-packet">2.2 Packet SRAM object map</h3>
+<p>Packet SRAM is not flat from the hardware's point of view. The four hardware users (HIF, packet DMA, TX pipes, AES) each address it with their own encoding, and the CPU uses the plain address. The <em>object</em> layout below is fixed by the vendor image and reproduced byte-for-byte by the Rust linker script.</p>
+<div class="scroll">
+<table>
+<thead><tr><th>Object</th><th class="a">CPU address</th><th class="a">Count &times; size</th><th>Hardware user</th></tr></thead>
+<tbody>
+<tr><td>HIF input buffers</td><td class="a mono">0x0900_7000</td><td class="a mono">30 &times; 0x660</td><td>Host writes, firmware reads (HIF RX descriptors)</td></tr>
+<tr><td>HIF output buffers</td><td class="a auto">after the input pool</td><td class="a mono">4 &times; 0x180</td><td>Firmware writes, host reads (HIF TX descriptors)</td></tr>
+<tr><td>TX command slots</td><td class="a auto">pool start</td><td class="a mono">4 pipes &times; 4 slots &times; 0x54</td><td>CPU builds, MAC pipe fetch reads</td></tr>
+<tr><td>Response commands</td><td class="a auto">pool start</td><td class="a mono">13 &times; descriptor</td><td>CPU builds, MAC response engine reads (beacon, ACK/CTS, BlockAck, TBTT)</td></tr>
+<tr><td>Response pointers</td><td class="a auto">pool start</td><td class="a mono">32 &times; 4</td><td>Published at <code>0x09c0_0c00</code>; indexed by pipe slot</td></tr>
+<tr><td>Automatic response list</td><td class="a auto">pool start</td><td class="a mono">0x8c</td><td>Head word <code>0x4e14_0000</code>, 33 entries, terminator <code>0xf000_0000</code></td></tr>
+<tr><td>Rate RAM</td><td class="a auto">pool start</td><td class="a mono">80 &times; 0x10</td><td>Published at <code>0x09c0_0800</code>; 4-word entries (airtime, encoding+class, durations)</td></tr>
+<tr><td>Duration table</td><td class="a auto">pool start</td><td class="a mono">2 &times; 16-bit</td><td>Referenced by command opcode <code>0x21</code></td></tr>
+<tr><td>Interface metadata</td><td class="a auto">pool start</td><td class="a mono">4 bytes</td><td>Byte OR'd by the MAC into the high frame-control octet (command <code>0x2080_0000</code>)</td></tr>
+<tr><td>Host frame state nodes</td><td class="a auto">pool start</td><td class="a mono">30 &times; 0x54</td><td>Per-publication context retained by the TX pipe registry</td></tr>
+<tr><td>Software records</td><td class="a auto">pool start</td><td class="a mono">4 &times; 0x2a0</td><td>A-MPDU per-pipe transfer records</td></tr>
+<tr><td>RX FIFO</td><td class="a mono">0x0940_0000</td><td class="a mono">0x8000 storage</td><td>Packet DMA writes, CPU reads</td></tr>
+</tbody>
+</table>
+</div>
+<p class="small">The runtime pool occupies <code>0x0900_7000..0x0901_6630</code>. Absolute addresses inside it are firmware-private; the hardware only ever sees the encoded forms of appendix A.</p>
+
+<h2 id="regs">3. Interrupt controller (0x0a88_0000)</h2>
+
+<p>The controller is a plain 32-source level/latched aggregator with one FIQ output. The vendor firmware enables individual sources as their owners come up, unmasks FIQ for the MAC event line only, and keeps CPU IRQ masked during startup.</p>
+
+<h3>3.1 Register map</h3>
+<div class="scroll">
+<table>
+<thead><tr><th class="a">Offset</th><th>Name</th><th class="a">Access</th><th>Description</th><th class="a">Conf.</th></tr></thead>
+<tbody>
+<tr><td class="a">0x00</td><td>CONTROL</td><td class="a">RW</td><td>Controller enable. Vendor writes <code>1</code> at reset.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x04</td><td>ACKNOWLEDGE</td><td class="a">W1C</td><td>Write one bits to clear the corresponding pending source. Writing the value read from <code>+0x20</code> is the normal acknowledge.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x08</td><td>VECTOR_BASE</td><td class="a">RW</td><td>Vendor writes <code>0x1500_0000</code>-equivalent form <code>BASE &lt;&lt; 9</code>. The open firmware does not use vectored dispatch.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x0c</td><td>ENABLE</td><td class="a">RW</td><td>Bit <em>n</em> lets source <em>n</em> reach the CPU. The IRQ handler clears the bits of every pending source before acknowledging (mask-on-entry, re-arm by the owner).</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x14</td><td>CLEAR</td><td class="a">RW</td><td>Written all-ones during reset, together with an all-ones acknowledge.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x18</td><td>CONFIGURATION</td><td class="a">RW</td><td>Vendor reset value <code>0x1600_a037</code>. The top byte selects the FIQ source: <code>0x16</code> (22 decimal) names the MAC event line.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x20</td><td>PENDING</td><td class="a">RO</td><td>Pending sources <em>among the enabled ones</em>. A disabled source never appears here, which makes this register useless for finding a masked cause.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x24</td><td>RAW_STATE</td><td class="a">RO</td><td>Raw source state before the enable mask. Required to see sources 9, 24 and 28, which stay asserted.</td><td class="a"><span class="tag C">C</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>3.2 Source assignment</h3>
+<div class="scroll">
+<table>
+<thead><tr><th class="n">Source</th><th>Owner</th><th>Behaviour and handling</th><th class="a">Conf.</th></tr></thead>
+<tbody>
+<tr><td class="n">0</td><td>Debug UART transmit</td><td>Level, pending whenever nothing is being sent. Any enabled wait-for-interrupt ends immediately. The vendor enables it only while printing; images that print nothing must leave it disabled.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="n">2</td><td>Debug UART receive</td><td>Vendor handler at <code>0xfff019e0</code>. Not enabled by the open firmware.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="n">4</td><td>Unassigned</td><td>The vendor registers a handler for it during <code>0x00000bb0</code>; its role was not recovered, so the source stays disabled.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="n">6</td><td>Timer 1</td><td>One-shot expiry. Acknowledged by <code>platform::wait_for_event</code> after every sleep, and by the owner when a timer was armed for a deadline.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="n">13</td><td>HIF</td><td>Level. Cause bits live in HIF <code>+0x24</code> and are cleared by writing them to <code>+0x28</code>; the source is re-armed only after all causes are acknowledged.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="n">18</td><td>AES engine</td><td>Registered during post-activation interrupt setup. Vendor handler <code>enc_xfer_complete</code> (<code>0xea08</code>).</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="n">20</td><td>AES engine</td><td>Second AES line; both are registered together. Direction-to-line mapping is not yet established.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="n">21</td><td>Unassigned</td><td>Vendor registers a handler in <code>0x00000b88</code>; purpose unknown.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="n">26</td><td>Packet DMA / TSF</td><td>Vendor IRQ 26 handler at <code>0x00007e3c</code> reads MAC <code>+0x0e34</code> and clears <code>0x1f00_0003</code>. Never observed pending in the open firmware, which never adjusts the TSF.</td><td class="a"><span class="tag S">S</span></td></tr>
+<tr><td class="n">27</td><td>TX event error</td><td>Vendor calls <code>event_send_error_0x34</code>; disabled until that path is translated.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="n">28</td><td>MAC event FIFO</td><td>Raw bit 28 is set while the MAC event FIFO holds events. Acknowledging it stops RX within seconds, so it is left alone; the FIFO is drained from the main loop.</td><td class="a"><span class="tag S">S</span></td></tr>
+<tr><td class="n">FIQ 0x16</td><td>MAC event line</td><td>Asserted whenever the MAC has events. It ends a wait-for-interrupt even though it never appears in <code>+0x20</code> or <code>+0x24</code>; enabling source <code>0x16</code> as an IRQ changes nothing and the vendor does not do it.</td><td class="a"><span class="tag C">C</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>3.3 Interrupt routing words (0x0abb_0010 to 0x0abb_0030)</h3>
+<p>The vendor writes nine words immediately after subsystem initialization and before enabling interrupts. Values are exact from the instruction stream at <code>0x000164fa</code>.</p>
+<div class="scroll">
+<table>
+<thead><tr><th class="a">Address</th><th class="a">Value</th><th>Note</th></tr></thead>
+<tbody>
+<tr><td class="a mono">0x0abb_0010</td><td class="a mono">0x000</td><td>Replaying the whole group changed nothing measurable on hardware, so the semantics are unproven.</td></tr>
+<tr><td class="a mono">0x0abb_0014</td><td class="a mono">0x3fd</td><td>Same caveat.</td></tr>
+<tr><td class="a mono">0x0abb_0018</td><td class="a mono">0x3fa</td><td></td></tr>
+<tr><td class="a mono">0x0abb_001c</td><td class="a mono">0x3ff</td><td></td></tr>
+<tr><td class="a mono">0x0abb_0020</td><td class="a mono">0x01b</td><td></td></tr>
+<tr><td class="a mono">0x0abb_0024</td><td class="a mono">0x05b</td><td></td></tr>
+<tr><td class="a mono">0x0abb_0028</td><td class="a mono">0x0b6</td><td></td></tr>
+<tr><td class="a mono">0x0abb_002c</td><td class="a mono">0x10a</td><td></td></tr>
+<tr><td class="a mono">0x0abb_0030</td><td class="a mono">0x12c</td><td></td></tr>
+</tbody>
+</table>
+</div>
+<p class="small">Two more words in the same window come from the container's loader table rather than from startup code: <code>0x0abb_0008 = 0x0000_026d</code> and <code>0x0abb_0078 = 0x0048_0035</code>.</p>
+
+<h2 id="sysctl">4. System control (0x0a98_0000)</h2>
+<p class="small">Three registers. Used by memory probing and by DMA/clock bring-up.</p>
+<div class="scroll">
+<table>
+<thead><tr><th class="a">Offset</th><th>Name</th><th>Observed programming</th><th class="a">Conf.</th></tr></thead>
+<tbody>
+<tr><td class="a">0x00</td><td>CONTROL</td><td>Probe path: clear bit 5, set bit 6. DMA path: clear bit 7, set bit 4.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x04</td><td>STATUS</td><td>Bit 5 is polled after the bit-6 transition; it reads 0 on this device and moves startup mode from 3 to 1.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x08</td><td>SECONDARY_CONTROL</td><td>Bit 6 set during the probe. DMA path: bit 4 cleared. Bit 6 is cleared again if <code>STATUS</code> bit 5 reads set.</td><td class="a"><span class="tag C">C</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="clk">5. Clock, reset and platform control</h2>
+
+<h3>5.1 Clock / reset block (0x0aa8_0000)</h3>
+<div class="scroll">
+<table>
+<thead><tr><th class="a">Offset</th><th>Name</th><th>Observed programming</th><th class="a">Conf.</th></tr></thead>
+<tbody>
+<tr><td class="a">0x04</td><td>CONTROL_04</td><td>Written <code>0x200</code> once, in <code>0x00000bb0</code>. After this write the <code>0x0900ff98</code> packet-RAM alias disappears on some images; that is a mapping effect, not a CPU stop.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x08</td><td>WINDOW_SELECTOR</td><td>Bits 2..4 select one of eight remap windows to be read through <code>+0x2c</code>. Bits other than 2..4 are preserved.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x18</td><td>FEATURE_CONTROL</td><td>Bits <code>0x0018_0200</code> are set during the memory probe and restored afterwards.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x2c</td><td>WINDOW_VALUE</td><td>Reads the selected remap window. Eight 32-bit descriptors are sampled once at startup.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x40</td><td>MASK_40</td><td>OR <code>0x00f0_0000</code> in the DMA/clock path.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x44</td><td>MASK_44</td><td>AND <code>0x7fff_f777</code> at interrupt setup.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x48</td><td>MASK_48</td><td>AND <code>0x777f_ffff</code> at interrupt setup, then OR <code>0xf0</code> in the DMA path.</td><td class="a"><span class="tag C">C</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<h4>Remap window relocation</h4>
+<p>The eight window descriptors are sampled by <code>FUN_00015944</code>. If any is nonzero, windows 3, 4 and 5 are rewritten with a relocated base: the page number (bits 12..27) is shifted, biased by <code>0x166</code> and written back, with window 4 also carrying the overflow into bits 28..31 and window 5 receiving the low nibble of that overflow. This is a fixed translation of the vendor algorithm and is reproduced exactly:</p>
+<pre><code>t3 = ((w3 &amp; 0x0fff_ffff) &gt;&gt; 12) + 0x166
+t4 = ((w4 &amp; 0x0fff_ffff) &gt;&gt; 12) + 0x166
+th = ((w4 &gt;&gt; 28) | (w5 &lt;&lt; 4)) + 0x166
+w3 = (w3 &amp; 0xf000_0fff) | (t3 &lt;&lt; 12)
+w4 = (w4 &amp; 0x0000_0fff) | (t4 &lt;&lt; 12) | (th &lt;&lt; 28)
+w5 = (w5 &amp; 0xffff_f000) | ((th &amp; 0xffff) &gt;&gt; 4)</code></pre>
+<p>Window 0 is later read as the remap control word: if its bit 27 is clear, startup mode becomes 3 and the probe sequence runs.</p>
+
+<h3 id="timers">5.2 Timers (0x0ac0_0000)</h3>
+<div class="scroll">
+<table>
+<thead><tr><th class="a">Offset</th><th>Name</th><th class="a">Access</th><th>Observed programming</th><th class="a">Conf.</th></tr></thead>
+<tbody>
+<tr><td class="a">0x00</td><td>TIMER0_LOAD</td><td class="a">RW</td><td><code>0xffff_ffff</code>; timer 0 free-runs.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x04</td><td>NOW</td><td class="a">RO</td><td>Microsecond counter, the firmware's only clock. Wraps at 2<sup>32</sup> &micro;s (71.6 min).</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x08</td><td>TIMER0_CONTROL</td><td class="a">RW</td><td><code>0x80</code> to start free-running.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x10</td><td>TIMER0_PRESCALE</td><td class="a">RW</td><td><code>0x4f</code>: 80 MHz divided to 1 MHz.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x14</td><td>TIMER1_LOAD</td><td class="a">RW</td><td>Delay in microseconds for the one-shot.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x1c</td><td>TIMER1_CONTROL</td><td class="a">RW</td><td><code>0xc1</code> starts a one-shot; it reads <code>0xc3</code> after firing. Writing <code>0xc1</code> over a fired timer does <em>not</em> restart it: write <code>0</code> first, always.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x20</td><td>TIMER1_MODE</td><td class="a">RW</td><td><code>0</code>.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x24</td><td>TIMER1_PRESCALE</td><td class="a">RW</td><td><code>0x4f</code>.</td><td class="a"><span class="tag C">C</span></td></tr>
+</tbody>
+</table>
+</div>
+<h4>Measured timer behaviour</h4>
+<div class="scroll">
+<table>
+<thead><tr><th class="n">Requested delay</th><th class="n">Actual sleep</th><th>Note</th></tr></thead>
+<tbody>
+<tr><td class="n mono">1,000 &micro;s</td><td class="n mono">1,001 &micro;s</td><td>+1 &micro;s of overhead</td></tr>
+<tr><td class="n mono">20,000 &micro;s</td><td class="n mono">20,001 &micro;s</td><td>+1 &micro;s of overhead</td></tr>
+<tr><td class="n mono">5 &micro;s</td><td class="n mono">7 &micro;s</td><td>below the resolution floor of the wake path</td></tr>
+</tbody>
+</table>
+</div>
+<p>The timer keeps counting while the CPU is in wait-for-interrupt, so it is a reliable wake source even with IRQ masked at the CPU.</p>
+
+<h3>5.3 Platform control (0x0ac8_0000)</h3>
+<div class="scroll">
+<table>
+<thead><tr><th class="a">Offset</th><th>Name</th><th>Observed programming</th><th class="a">Conf.</th></tr></thead>
+<tbody>
+<tr><td class="a">0x58</td><td>SHARED_POINTER</td><td><code>0x0004_0090</code> in the DMA path. Points into DTCM.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x64</td><td>POWER_CONTROL</td><td><code>0x10</code>.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x80</td><td>READY_STATUS</td><td>Bit 0 set when the clock/PLL block has settled; polled with a bound of <code>0x200</code> iterations.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x84</td><td>CLOCK_FLAGS</td><td><code>0x0c02</code> when <code>+0x94</code> bit 3 is clear, else <code>0x0042</code>.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x94</td><td>CLOCK_STATUS</td><td>Bit 3 selects between the two clock-flag words above.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x9c</td><td>PARAMETER_9C</td><td><code>6</code>.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0xa0</td><td>PARAMETER_A0</td><td><code>31</code>.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0xbc</td><td>CONFIGURATION</td><td>Before platform init: clear bit 0, set bit 23. Later, if no remap windows are present, OR <code>0x0012_0000</code>.</td><td class="a"><span class="tag C">C</span></td></tr>
+</tbody>
+</table>
+</div>
+<div class="box warn">
+<p><strong>Ordering constraint at <code>0x0ac8_00bc</code>.</strong> The <code>+0xbc</code> update (clear bit 0, set bit 23) must happen <em>before</em> <code>FUN_000009e0</code> runs, exactly as the vendor does it from <code>0x000164c8</code>. The same applies to <code>clock_reset+0x04 = 0x200</code>: it is a single transition whose position in the sequence matters, and it is the point after which a former packet-RAM alias is no longer readable. A lost alias is not evidence that the CPU stopped.</p>
+</div>
+<h2 id="hif">6. Host interface (HIF): 0x0ab0_0000 and 0x0ab0_0100</h2>
+
+<p>The HIF is a descriptor-driven DMA engine between the SDIO function and packet RAM. It has two rings in opposite directions plus a dedicated emergency descriptor used by the fatal-exception path. Both rings are memory-mapped in the CPU's address space, so firmware behaviour is "publish a descriptor, then read the engine's status registers".</p>
+
+<h3>6.1 Descriptor format (8 bytes)</h3>
+<div class="scroll">
+<table class="bits">
+<thead><tr><th class="a">Offset</th><th>Field</th><th>Description</th><th class="a">Conf.</th></tr></thead>
+<tbody>
+<tr><td class="a">+0x00</td><td>ADDRESS</td><td>32-bit DMA <em>bus</em> address of the buffer, encoded as <code>cpu &amp; 0xf6ff_ffff</code> (appendix A). Never a CPU pointer.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">+0x04</td><td>CONTROL</td><td>Bitfield below. Bit 0 is descriptor ownership.</td><td class="a"><span class="tag C">C</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<h4>CONTROL bitfield</h4>
+<div class="scroll">
+<table class="bits">
+<thead><tr><th class="a">Bits</th><th>Name</th><th>Meaning</th><th class="a">Conf.</th></tr></thead>
+<tbody>
+<tr><td class="a">0</td><td>OWNED</td><td>Set while the engine owns the descriptor; the CPU polls for it to clear before reusing the slot.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">12:1</td><td>LENGTH</td><td>Buffer length. Firmware publishes <code>((len + 1) &amp; 0x1ffe) | 1</code>. This even-byte descriptor encoding is independent of the upstream cw1200 driver's four-byte command padding.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">14:13</td><td>SEQUENCE</td><td>Two-bit descriptor sequence taken from the message header id. Continuity is checked by the host, so emergency-channel publications must advance the same counter.</td><td class="a"><span class="tag C">C</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>6.2 Ring 1: host-to-firmware descriptors (0x0ab0_0000)</h3>
+<p>32 descriptors, 8 bytes each, covering the 30 input buffers of <code>0x660</code> bytes. Slots 30 and 31 are published with a zero address and zero control.</p>
+<div class="scroll">
+<table>
+<thead><tr><th class="a">Offset</th><th>Contents</th></tr></thead>
+<tbody>
+<tr><td class="a">0x0000 + n*8</td><td>Descriptor <em>n</em>: buffer bus address + control word with length <code>0x661</code> form</td></tr>
+<tr><td class="a">0x00f0, 0x00f8</td><td>Unused slots, address 0, control 0</td></tr>
+<tr><td class="a">0x0100</td><td>End of ring; the shared block starts here</td></tr>
+</tbody>
+</table>
+</div>
+<p>The engine writes the received message into the buffer; the firmware reads the 4-byte WSM header (<em>length</em> LE16, <em>id</em> LE16) at the buffer start and the payload at <code>+4</code>.</p>
+
+<h3>6.3 Ring 2 and shared registers (0x0ab0_0100)</h3>
+<div class="scroll">
+<table>
+<thead><tr><th class="a">Offset</th><th>Name</th><th class="a">Access</th><th>Description</th><th class="a">Conf.</th></tr></thead>
+<tbody>
+<tr><td class="a">0x00..0x1f</td><td>TX[0..3]</td><td class="a">RW</td><td>Four firmware-to-host descriptors, same format as above. Packet buffers are <code>0x180</code> bytes in the linker-owned output pool.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x20</td><td>CONTROL</td><td class="a">RW</td><td>Bits 10:0 length mask. Vendor writes <code>0x7ff</code>; if bit 10 already reads set it writes <code>0x7f7</code> and the firmware's per-message length mask becomes <code>value &amp; 0x07f8</code>.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x24</td><td>STATUS</td><td class="a">RO</td><td>Cause bits. Bit 1 = transmit completion pending; bit 2 = host request ready. Only these two schedule work.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x28</td><td>INTERRUPT_ACK</td><td class="a">W1C</td><td>Write the value read from <code>+0x24</code> to clear the causes. Re-arming IRQ 13 before all causes are acknowledged loses events.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x2c</td><td>EMERGENCY_ADDRESS</td><td class="a">RW</td><td>Bus address of the fatal-exception message buffer.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x30</td><td>EMERGENCY_CONTROL</td><td class="a">RW</td><td>Same bitfield as a normal descriptor control word, plus the emergency sequence.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x34</td><td>STARTUP_STATUS</td><td class="a">RO</td><td>Startup wait condition; the agent that clears bit 10 has not been identified. The vendor routine at <code>0xab4</code> reads +0x40 once, then polls bit 10 at <code>0x0ab00134</code> until clear. The two reads are not interchangeable.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x40</td><td>ACTIVATION</td><td class="a">RO</td><td>Named for the vendor routine that reads it. Reads <code>2</code> in the working vendor runtime; the routine does not identify who provided the value.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x44</td><td>END</td><td class="a">-</td><td>End of the shared block.</td><td class="a"><span class="tag C">C</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>6.4 Ring geometry and flow control</h3>
+<div class="scroll">
+<table>
+<thead><tr><th>Parameter</th><th class="a">Value</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td>Input buffers</td><td class="a mono">30 &times; 0x660</td><td>Announced to the host in the startup indication (<code>input_buffers</code>, <code>input_buffer_size</code>).</td></tr>
+<tr><td>Output descriptors</td><td class="a mono">4</td><td>Hardware ring depth. Only four messages may be in flight in this direction.</td></tr>
+<tr><td>Output queue depth</td><td class="a mono">64</td><td>Software staging queue, independent of the hardware ring.</td></tr>
+<tr><td>Input ring descriptors</td><td class="a mono">32</td><td>Two slots beyond the buffer count stay disabled.</td></tr>
+<tr><td>Sequence width</td><td class="a mono">2 bits</td><td>Per-descriptor; wraps independently of the 64-entry queue.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="box">
+<p><strong>Ownership rule.</strong> A cleared descriptor control word alone is not a transfer-completion notification: the engine may clear it after fetching the descriptor but before the host has finished reading the buffer. Firmware must treat HIF status bit 1 as the completion event, and status bit 2 as the request-ready event, with the descriptor being reclaimed only afterwards. Vendor <code>hif_tx_confirm_drain</code> ordering is explicit: make the descriptor slot reusable and push its successor <em>before</em> releasing the completed message's backing storage.</p>
+</div>
+
+<h2 id="pdm">7. Packet DMA and the receive FIFO (MAC +0x0600)</h2>
+
+<p>Packet DMA is the only writer of received frames. It appends complete 802.11 frames, each prefixed by a 0x20-byte header and followed by a 4-byte-aligned trailer, into the RX FIFO ring and advances a producer offset. The firmware reads the producer, claims slots, publishes a consumer offset, and releases buffers back to the HIF.</p>
+
+<h3>7.1 Register map</h3>
+<div class="scroll">
+<table>
+<thead><tr><th class="a">Offset</th><th>Name</th><th class="a">Access</th><th>Description</th><th class="a">Conf.</th></tr></thead>
+<tbody>
+<tr><td class="a">0x0600</td><td>CONTROL</td><td class="a">RW</td><td>Bit 0 ENABLE, bit 23 ACTIVE. Startup value <code>0x0102_0418</code>. ACTIVE stays set until a frame in flight completes after ENABLE is dropped.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x0604</td><td>PRODUCER</td><td class="a">RO</td><td>FIFO offset just past the newest frame written.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x0608</td><td>CONSUMER</td><td class="a">RW</td><td>FIFO offset up to which firmware has released frames. Writing this is the release.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x060c</td><td>CONFIGURATION_0C</td><td class="a">RW</td><td><code>0x80</code>. Written <em>before</em> CONTROL during initialization.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x061c</td><td>CONFIGURATION_1C</td><td class="a">RW</td><td><code>7</code>.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x0620</td><td>CONFIGURATION_20</td><td class="a">RW</td><td><code>0x3000_0000</code>.</td><td class="a"><span class="tag C">C</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<h4>CONTROL bitfield</h4>
+<div class="scroll">
+<table class="bits">
+<thead><tr><th class="a">Bit</th><th>Name</th><th>Meaning</th><th class="a">Conf.</th></tr></thead>
+<tbody>
+<tr><td class="a">0</td><td>ENABLE</td><td>Packet DMA writes received frames into the RX FIFO.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">23</td><td>ACTIVE</td><td>Still moving a frame. Clears after ENABLE is dropped. A bounded poll of this bit is the documented stop sequence.</td><td class="a"><span class="tag C">C</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>7.2 FIFO slot layout</h3>
+<p>Every slot starts with a 0x20-byte header. The frame follows immediately and is padded up to the next word boundary; the trailer follows at that word boundary.</p>
+<div class="scroll">
+<table class="bits">
+<thead><tr><th class="a">Offset</th><th>Field</th><th>Description</th><th class="a">Conf.</th></tr></thead>
+<tbody>
+<tr><td class="a">0x00</td><td>MAGIC</td><td><code>0x00aa_55ff</code> in a valid slot. A slot past the producer holds arbitrary data and must be validated by magic and length.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x04</td><td>NEXT</td><td>Offset of the next slot. A slot whose next pointer is not the producer still has data behind it.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x08</td><td>STATE</td><td>Release state word; firmware writes <code>0xcccc_cc00</code> when it hands a slot back.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x14</td><td>RX_TSF</td><td>Low word of the MAC TSF when the frame began. Measured on beacons: the value is the beacon's airtime before processing.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x18</td><td>LENGTH</td><td>Frame length in octets <em>including</em> FCS.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x20</td><td>FRAME</td><td>The 802.11 frame itself.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x20 + align4(len)</td><td>TRAILER</td><td>Receive status. <code>+0x06</code> = rate index, <code>+0x07</code> = RCPI.</td><td class="a"><span class="tag C">C</span></td></tr>
+</tbody>
+</table>
+</div>
+<p>Offsets are logical: they wrap below <code>0x7000</code>, and the FIFO keeps <code>0x1000</code> bytes of linear spill so that a slot starting near the top of the ring remains addressable. CPU access is always <code>rx_fifo_base + (offset % 0x7000)</code>. The WSM message ceiling is <code>0x1ffe</code> bytes. Subtract 16 bytes of host headroom for the frame limit (8174 bytes); the RX slot length may include another four FCS bytes (8178). The available bytes and physical storage must also cover the slot.</p>
+
+<h2 id="mac">8. MAC registers (0x09c0_0000)</h2>
+
+<p>The MAC aperture is sparse. Offsets below are the ones the vendor image and the open firmware actually touch; unused holes exist between them. Absolute address is <code>0x09c0_0000 + offset</code>.</p>
+
+<h3>8.1 Address match and interface identity</h3>
+<div class="scroll">
+<table>
+<thead><tr><th class="a">Offset</th><th>Name</th><th>Observed programming</th><th class="a">Conf.</th></tr></thead>
+<tbody>
+<tr><td class="a">0x0030</td><td>OWN_MAC_LOW</td><td>Station address octets 0..3, little-endian. Written twice (two address entries) together with the registers below.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x0034</td><td>OWN_MAC_HIGH</td><td>Station address octets 4..5.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x0038</td><td>OWN_MAC_MODE</td><td><code>0x101</code> for the own-address entry.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x003c</td><td>BSSID_LOW</td><td>BSSID octets 0..3 (station role).</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x0040</td><td>BSSID_HIGH</td><td>BSSID octets 4..5.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x0044</td><td>BSSID_MODE</td><td><code>0x301</code> for a station (mode 3), <code>0x101</code> for AP/IBSS (mode 1). The vendor passes mode 3 for a station; with mode 1 the MAC answers the AP's A-MPDUs from an unused receive BlockAck pipe. AP role clears this register to 0 (own address only).</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x0048</td><td>SECOND_ADDR_LOW</td><td>Second copy of the own address, for the second interface slot.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x004c</td><td>SECOND_ADDR_HIGH</td><td>As above.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x0050</td><td>SECOND_ADDR_MODE</td><td><code>0x101</code>.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x0060 + n*0x0c</td><td>MATCH_ENTRY[n]</td><td>Four entries initialised to <code>len = 0xffff_ffff</code>, <code>+4 = 0xff</code>, <code>+8 = 0xff</code> (disabled).</td><td class="a"><span class="tag C">C</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>8.2 Mode, filter and beacon control</h3>
+<div class="scroll">
+<table>
+<thead><tr><th class="a">Offset</th><th>Name</th><th>Observed programming</th><th class="a">Conf.</th></tr></thead>
+<tbody>
+<tr><td class="a">0x0200</td><td>MODE</td><td>Main MAC mode word. Scan path: <code>0x07f3_bd5e</code>. Joined station: built from <code>0x07e3_b85c</code> OR per-active-record path masks (<code>0x0008_0281</code> or <code>0x0010_0502</code>) plus <code>0x4000</code> per record in mode 2.</td><td class="a"><span class="tag S">S</span></td></tr>
+<tr><td class="a">0x0204</td><td>FILTER</td><td>Scan path <code>0x0019_8000</code>; joined station <code>0x0279_fe00</code>. The scan value excludes received compressed BlockAck frames from packet DMA even though the AP transmits them and TX status completes, which is why the joined path must use the <code>mac_program_mode_regs</code> value.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x0210 + n*4</td><td>CONTROL_WORDS</td><td>23 words cleared during startup.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x0270</td><td>SECOND_PATH</td><td><code>0x0100_0000</code> or <code>1 &lt;&lt; 26</code> depending on the second active record's path selector.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x0308</td><td>RECEIVE_SETUP_308</td><td><code>0x70</code>.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x0310</td><td>TIMING_310</td><td><code>0x7800_0000</code> in both scan and joined modes.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x0314</td><td>SECOND_PATH_ENABLE</td><td><code>0x0100_0000</code> when a second active record shares the channel, else 0.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x02ec</td><td>RECEIVE_SETUP_2EC</td><td><code>4</code>.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x0800</td><td>RATE_RAM_BASE</td><td>MAC packet offset of the rate RAM object. Reprogrammed after every channel change.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x080c</td><td>PACKET_DMA_CFG</td><td>Cleared during packet-DMA preparation; semantics not recovered.</td><td class="a"><span class="tag Q">Q</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>8.3 Response engine: pointers, slots and beacons</h3>
+<p>The response engine sends descriptors that firmware places in packet RAM, addressed through a 32-entry pointer table. Slot numbering is fixed by the vendor (table below) and each slot is enabled by a bit in the pipe-enable bitmaps.</p>
+<div class="scroll">
+<table>
+<thead><tr><th class="a">Offset</th><th>Name</th><th>Description</th><th class="a">Conf.</th></tr></thead>
+<tbody>
+<tr><td class="a">0x0a00</td><td>BEACON_CONTROL</td><td><code>0x1030_0000</code> idle; <code>0x1030_0001</code> arms the beacon descriptor in pointer slot 0.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x0a04</td><td>BEACON_SELECTOR</td><td>Also the response-slot enable bitmap. Scan <code>0x0018_0180</code>, joined station <code>0x0018_0783</code>. Bit <code>n</code> enables response slot <code>n+2</code>.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x0a08</td><td>RESPONSE_BITMAP_SET</td><td>OR in bit <code>n</code> to mark slot <code>n+2</code> as having a programmed response. Keeping the programmed slots set is <em>required</em> for the MAC to recognise their response path.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x0a0c</td><td>RESPONSE_BITMAP_CLEAR</td><td>AND-mask; bits cleared here disable the slot's alternate path.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x0a10</td><td>RESPONSE_COUNT</td><td>24-bit count per slot, AND-masked to <code>0x00ff_ffff</code>.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x0a14</td><td>SLOT_FIELD_LOW</td><td>Cleared for slots 2..0x11 after programming.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x0a18</td><td>SLOT_FIELD_HIGH</td><td>Cleared for slots above 0x11.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x0a1c</td><td>RESPONSE_MASK</td><td><code>0x827b_ffdf</code>.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x0a20</td><td>MAC_EVENT_FIFO</td><td>Pop one 32-bit event word. The first pop after an event line is unconditional.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x0a24</td><td>EVENT_READINESS</td><td>Reads negative (bit 31) while more events are queued. This bit gates the remaining pops.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x0a28</td><td>RADIO_STOP</td><td>Cleared in the RX-stop path.</td><td class="a"><span class="tag S">S</span></td></tr>
+<tr><td class="a">0x0c00</td><td>RESPONSE_POINTER_BASE</td><td>Packet offset of the 32-entry response pointer table.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x0e08</td><td>TBTT</td><td>Low 24 bits of the target beacon transmission time, with bit 30 select. <code>0</code> disarms.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x0e30</td><td>SLOT_BASE_REG</td><td><code>base * 8 - 1</code>.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x0e34</td><td>TSF_CONTROL</td><td>Written <code>0</code> then <code>3</code> (a <code>0 &rarr; 3</code> edge; writing 3 directly is not equivalent if the register has sticky semantics). IRQ 26 handler clears <code>0x1f00_0003</code>.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x0e38</td><td>TSF_LOW</td><td>Low 32 bits of the 64-bit microsecond TSF.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x0e3c</td><td>TSF_HIGH</td><td>High 32 bits. Read high, low, high again and retry on change.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x0e58</td><td>SLOT_X16</td><td><code>base * 16 + 2</code>.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x0e5c</td><td>SLOT_X24</td><td><code>base * 24 + 2</code>.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x0e60</td><td>PIPE_COUNT</td><td><code>2</code>.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x0e64</td><td>EDCA_AIFS</td><td>Packed AIFS values for the active record. Only written while the MAC is quiescent.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x0e70 + pipe*4</td><td>PIPE_QUANTUM[pipe]</td><td>TX quantum, written as <code>(quantum + 0x1f) &gt;&gt; 5</code>.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x0e84</td><td>PIPE_IRQ_PENDING</td><td>Scheduler word: low bits select the pipe to serve, nibbles 4..7 and 12..15 select service phases. Written with per-pipe ones-complements to acknowledge.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x0e80</td><td>PIPE_CFG_80</td><td><code>0x100</code>.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x0e88</td><td>PIPE_CFG_88</td><td><code>0xff</code>.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x0e8c</td><td>COMMAND_FETCH</td><td><code>0xbf</code> enables the command-fetch engine. Must only be written while the MAC is quiescent: cycling it under a running fetch engine disturbs fetch state even though the final value is identical.</td><td class="a"><span class="tag S">S</span></td></tr>
+<tr><td class="a">0x0e94</td><td>BEACON_AIRTIME</td><td>Airtime of a 24-octet frame at the beacon rate, with a small per-configuration adjustment.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x0e98</td><td>PIPE_IRQ_TRIGGER</td><td>Writing <code>(1 &lt;&lt; pipe) &lt;&lt; 25</code> signals the MAC that firmware serviced the pipe.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x0e00</td><td>TIMING_BLOCK</td><td><code>0x4f00_004f</code> then <code>0x0909_0000</code>, then offsets <code>0x08..0x2c</code> cleared.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x1400..0x1410</td><td>DEBUG_CONTEXT</td><td>Saved/restored register context: <code>+0x04</code>, <code>+0x08</code>, <code>+0x0c = 0x7ff</code>, <code>+0x10</code>, and the base at <code>+0x00</code> written <em>last</em>.</td><td class="a"><span class="tag C">C</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<h4>Response pointer slot assignment</h4>
+<div class="scroll">
+<table>
+<thead><tr><th class="n">Slot</th><th>Descriptor</th><th class="n">Slot</th><th>Descriptor</th></tr></thead>
+<tbody>
+<tr><td class="n">0</td><td>Beacon (pointer to response command 3)</td><td class="n">2, 3</td><td>Immediate ACK, interface 0 / 1</td></tr>
+<tr><td class="n">4, 5</td><td>ACK response descriptors, interface 0 / 1</td><td class="n">6, 7</td><td>CTS response descriptors, interface 0 / 1</td></tr>
+<tr><td class="n">8</td><td>Idle descriptor used as the default pointer</td><td class="n">0x0b, 0x0c</td><td>BlockAck response slot, interface 0 / 1</td></tr>
+<tr><td class="n">9 + n</td><td>CTS-to-self, interface <em>n</em></td><td class="n">0x15 + n</td><td>ACK, interface <em>n</em></td></tr>
+<tr><td class="n">0x10</td><td>Idle descriptor installed when beaconing starts</td><td class="n">0x1b, 0x1c</td><td>Alias slots mapped to logical 30 / 31</td></tr>
+</tbody>
+</table>
+</div>
+<p>Pointers are published as MAC packet offsets (23-bit form). The slot's enable bit and its <code>+0x0a08</code> bitmap entry must be programmed together; clearing the bitmap entry makes the MAC send the descriptor from a different, unused pipe.</p>
+
+<h3>8.4 EDCA and slot timing block</h3>
+<p><code>program_slot_timings()</code> writes a fixed group derived from the interface's slot-time base. Values are exact from the vendor path:</p>
+<div class="scroll">
+<table>
+<thead><tr><th class="a">Offset</th><th class="a">Value</th><th class="a">Offset</th><th class="a">Value</th></tr></thead>
+<tbody>
+<tr><td class="a">0x0618</td><td class="a mono">0x0000_004d</td><td class="a">0x0614</td><td class="a mono">0x0000_01cd</td></tr>
+<tr><td class="a">0x0428</td><td class="a mono">0x0000_049d</td><td class="a">0x042c</td><td class="a mono">0x0000_049d</td></tr>
+<tr><td class="a">0x0444</td><td class="a mono">0x0000_0258</td><td class="a">0x0434</td><td class="a mono">0x0000_003d</td></tr>
+<tr><td class="a">0x0438</td><td class="a mono">0x0000_003d</td><td class="a">0x0448</td><td class="a mono">0x0000_0258</td></tr>
+<tr><td class="a">0x043c</td><td class="a mono">0x0000_0298</td><td class="a">0x0440</td><td class="a mono">0x0000_0298</td></tr>
+<tr><td class="a">0x044c</td><td class="a mono">0x0000_0134</td><td class="a">0x0810</td><td class="a mono">0</td></tr>
+</tbody>
+</table>
+</div>
+<p>A joined station also restores a 9 &micro;s slot-time base after a synthetic scan transition; the scan record's timing word is zero in the open runtime.</p>
+
+<h2 id="rings">9. TX pipe rings (0x09c6_0000)</h2>
+
+<p>Four identical rings, stride <code>0x80</code>. Ring <em>p</em> is at <code>0x09c6_0000 + p*0x80</code>. A pipe is started by pushing one airtime word into the duration FIFO and writing GO; the MAC then fetches the command descriptor from packet RAM, transmits, and reports start/completion/threshold events through the MAC event FIFO.</p>
+
+<h3>9.1 Ring layout</h3>
+<div class="scroll">
+<table>
+<thead><tr><th class="a">Offset</th><th>Name</th><th>Description</th><th class="a">Conf.</th></tr></thead>
+<tbody>
+<tr><td class="a">0x00</td><td>DURATION_FIFO</td><td>Write one airtime word per publication, immediately before GO.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x04..0x13</td><td>reserved</td><td>Not used by firmware.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x0c</td><td>COMMAND_BASE</td><td>MAC packet offset of the pipe's command slot array (<code>tx_command(pipe, 0)</code>).</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x10</td><td>COMMAND_LENGTH</td><td>Command descriptor size, <code>0x54</code>.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x14</td><td>GO</td><td>Write <code>1</code> to hand the prepared command to the MAC. Written <code>0</code> first when re-arming after a retry.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x18</td><td>INACTIVE_SENTINEL</td><td><code>0xff00_ffff</code> marks a pipe as retry-inactive.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x1c</td><td>COMPLETION_WORD</td><td>Per-pipe completion state.</td><td class="a"><span class="tag S">S</span></td></tr>
+<tr><td class="a">0x20</td><td>CURSOR_AND_PENDING_MASK</td><td>Bits 23:26 plus a 24-bit pending mask: the current command slot index is <code>(value &amp; 0x07ff_ffff) &gt;&gt; 24</code>.</td><td class="a"><span class="tag C">C</span></td></tr>
+</tbody>
+</table>
+</div>
+<div class="box warn">
+<p><strong>Initialization is once, before MAC core enable.</strong> COMMAND_BASE, COMMAND_LENGTH and GO are programmed by <code>prepare_packet_dma()</code> in the vendor's <code>mac_hw_init_pipes</code> position, and the vendor never programs them again. Re-writing GO while the MAC is live disturbs a running command-fetch engine. Final register values are identical either way, so a bug caused by the extra write shows up only as behavioural difference, not as a value difference.</p>
+</div>
+
+<h3>9.2 Pipeline mapping</h3>
+<p>Pipe index and 802.11 access category are not the same numbering. Both directions of the mapping are fixed:</p>
+<div class="scroll">
+<table>
+<thead><tr><th class="n">Pipe</th><th class="n">Access category</th><th>Use</th></tr></thead>
+<tbody>
+<tr><td class="n">0</td><td class="n">1</td><td>AC_BE</td></tr>
+<tr><td class="n">1</td><td class="n">0</td><td>AC_VO</td></tr>
+<tr><td class="n">2</td><td class="n">2</td><td>AC_VI</td></tr>
+<tr><td class="n">3</td><td class="n">3</td><td>AC_BK</td></tr>
+</tbody>
+</table>
+</div>
+<p>Each pipe owns four command slots of <code>0x54</code> bytes in packet RAM. Slot state is the firmware's own: reserved, published, started, transmitted, retry-owned, status seen.</p>
+
+<h3>9.3 Command descriptor format</h3>
+<p>A command descriptor is a stream of 32-bit words consumed by the MAC in order. Word <code>+0x00..+0x08</code> hold the airtime/sequence header; the command words start at <code>+0x0c</code> and end with the terminator <code>0xf000_0000</code>. Every word's top byte selects an operation class; the operand is carried in the lower bits.</p>
+<div class="scroll">
+<table>
+<thead><tr><th class="a">Opcode</th><th>Operand</th><th>Meaning</th><th class="a">Conf.</th></tr></thead>
+<tbody>
+<tr><td class="a mono">0x21</td><td>23-bit packet offset</td><td>Point at a duration word (used when the header duration is zero).</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a mono">0x20</td><td>23-bit packet offset, <code>0x2080_0000</code> form</td><td>Source one metadata byte that the MAC ORs into the high frame-control octet.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a mono">0x29</td><td>23-bit packet offset</td><td>Frame header address (frame + 4).</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a mono">0x32</td><td>16-bit value</td><td>Insert a segment value: frame control, or duration when no operand.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a mono">0x31</td><td>control subtype</td><td>Emit a control frame (ACK <code>0xd4</code>, CTS <code>0xc4</code>).</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a mono">0x40</td><td>bus address, <code>0x007f_fffc</code> mask</td><td>Payload DMA address.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a mono">0x50</td><td>PHY control bits</td><td>Finalise the PHY rate word for the frame length.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a mono">0x51</td><td>PHY rate word</td><td>Transmit rate and preamble selection.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a mono">0x52</td><td>rate attribute &lt;&lt; 16 | length+4</td><td>Hardware rate class and frame length.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a mono">0x58</td><td>constant</td><td>Response/fixed-value segment (<code>0x5800_0003</code>).</td><td class="a"><span class="tag S">S</span></td></tr>
+<tr><td class="a mono">0x59, 0x5a</td><td>constant</td><td>Control-frame PHY segments (<code>0x5900_0000</code>, <code>0x5a00_000e</code>).</td><td class="a"><span class="tag S">S</span></td></tr>
+<tr><td class="a mono">0x47</td><td>constant</td><td>Fixed macro command in every control-frame template.</td><td class="a"><span class="tag S">S</span></td></tr>
+<tr><td class="a mono">0x60, 0x68, 0x69</td><td>constant</td><td>BlockAck template segments.</td><td class="a"><span class="tag S">S</span></td></tr>
+<tr><td class="a mono">0x07</td><td>flag pattern</td><td>MAC fill/insert macro. <code>0x0700_8400</code> has the MAC insert the 8-octet timestamp (beacon, probe response); <code>0x0700_4600</code> closes a descriptor; <code>0x0700_2008</code>/<code>0x0700_2004</code> select an ACK/CTS response path; <code>0x0700_6828</code>/<code>0x0700_6820</code> arm BlockAck handling.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a mono">0x65</td><td><code>cpu &amp; 0x001f_fffc</code></td><td>A-MPDU member transfer (see 9.4).</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a mono">0x66</td><td>none</td><td>A-MPDU inter-member delimiter.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a mono">0xe4</td><td>none</td><td>A-MPDU terminal command.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a mono">0xf0</td><td>none</td><td>Descriptor terminator.</td><td class="a"><span class="tag C">C</span></td></tr>
+</tbody>
+</table>
+</div>
+<p class="small">The operation set is not fully decoded: the table lists classes whose use is confirmed in working descriptors. Do not assume an unlisted opcode is invalid, and do not assume a listed class has no other operands.</p>
+
+<h3>9.4 A-MPDU command stream</h3>
+<pre><code>word 0        header: airtime / sequence words
+word 1        ...
+0x6500_0000 | (member_1_addr &amp; 0x001f_fffc)   transfer member 1
+0x6600_0000                                    delimiter
+0x6500_0000 | (member_2_addr &amp; 0x001f_fffc)   transfer member 2
+0x6600_0000                                    delimiter
+...
+0xe400_0000                                    terminal
+0xf000_0000                                    end of descriptor</code></pre>
+<p>The first member's transfer word has no spare per-transfer flag bits, so firmware cannot invalidate member one while preserving both operands, the member order and the aggregate shape. Changing the delimiter opcode instead invalidates the member <em>after</em> it: changing <code>0x66</code> to <code>0x67</code> produced only second-member loss, and changing the first transfer opcode to <code>0x64</code> prevented aggregation from becoming operational at all.</p>
+
+<h2 id="aes">10. AES / CCMP engine (0x09c5_0000)</h2>
+
+<p>A byte-oriented command engine with a 32-bit input FIFO and two DMA pointers. Commands are either FIFO writes (key material, CCM context, AAD stream) or a start word that names an operation and takes the payload from the DMA registers. The engine keeps the loaded key across transfers.</p>
+
+<h3>10.1 Register map</h3>
+<div class="scroll">
+<table>
+<thead><tr><th class="a">Offset</th><th>Name</th><th class="a">Access</th><th>Description</th><th class="a">Conf.</th></tr></thead>
+<tbody>
+<tr><td class="a">0x00</td><td>COMMAND_STATUS</td><td class="a">RW</td><td>Write a command word; read status. Bit 13 FIFO ready, bit 12 busy/command not accepted, bit 0 authenticated result (sampled after the completion IRQ for decryption).</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x04</td><td>FIFO</td><td class="a">WO</td><td>32-bit writes supply little-endian key, CCM context and AAD words. The initialization stream goes to +0x08, not here.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x08</td><td>MODE1_INIT</td><td class="a">W observed</td><td>The engine initializer writes 430 bytes here, one per 32-bit write, with bit 31 set on the first. It then writes 0x9000 to +0x00. The vendor transfer dispatcher can select this routine. The bytes’ encoding and whether the engine needs them are unknown.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x10</td><td>SOURCE</td><td class="a">RW</td><td>DMA source, encoded <code>cpu &amp; 0xf6ff_ffff</code>.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x14</td><td>DESTINATION</td><td class="a">RW</td><td>DMA destination, same encoding.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a">0x18</td><td>LENGTH</td><td class="a">RW</td><td>Payload length in octets, excluding CCMP header and MIC.</td><td class="a"><span class="tag C">C</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>10.2 Command words</h3>
+<div class="scroll">
+<table>
+<thead><tr><th class="a">Command</th><th>Stage</th><th>Notes</th><th class="a">Conf.</th></tr></thead>
+<tbody>
+<tr><td class="a mono">0x1100</td><td>Key load</td><td>After four FIFO words holding the 16 key bytes little-endian. Bytes are not reversed relative to their WSM representation.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a mono">0x1240</td><td>CCM context</td><td>After one 16-byte FIFO block: <code>[0]=1</code>, <code>[1]=</code>TID, <code>[2..8]=</code>A2, <code>[8..14]=</code>PN5..PN0, <code>[14..16]=</code>payload length big-endian.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a mono">0x1403 / 0x1402</td><td>AAD first block</td><td>Transmit / receive respectively.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a mono">0x148b / 0x148a</td><td>AAD tail, 22 bytes</td><td>3-address non-QoS, TX / RX.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a mono">0x14ab / 0x14aa</td><td>AAD tail, 24 bytes</td><td>3-address QoS, TX / RX.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a mono">0x14eb / 0x14ea</td><td>AAD tail, 28 bytes</td><td>4-address non-QoS, TX / RX.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a mono">0x140b / 0x140a</td><td>AAD tail, 30 bytes</td><td>4-address QoS, TX / RX.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a mono">0x3008_1009</td><td>Start, encrypt</td><td>Payload length already in <code>+0x18</code>; encrypts in place when source = destination.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a mono">0x3008_1008</td><td>Start, decrypt</td><td>Supports the vendor overlap: <code>src = frame + hdr + 8</code>, <code>dst = frame + hdr</code>, which decrypts while removing the CCMP header.</td><td class="a"><span class="tag C">C</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<h4>AAD stream shape</h4>
+<pre><code>FIFO word 0 : big-endian AAD length, then AAD bytes
+AAD         : masked frame control (below), A1, A2, A3,
+              masked sequence control,
+              [A4], [QoS control]
+then        : one of the tail commands above
+then        : DMA start command</code></pre>
+<p>The Rust encoder clears Retry, Power Management and More Data; it also masks subtype bits 4–6 for non-management frames and bit 15 for QoS data. It sets the Protected bit in the AAD for both management and data frames.</p>
+
+<h3>10.3 Transfer class table</h3>
+<p>The vendor keeps a transfer-class table in DTCM at <code>0x0400_0804</code>. The classes relevant to ordinary data CCMP:</p>
+<div class="scroll">
+<table>
+<thead><tr><th class="n">Class</th><th class="a">Flags</th><th>Operation</th></tr></thead>
+<tbody>
+<tr><td class="n">6</td><td class="a mono">0x84</td><td>CCMP transmit encryption</td></tr>
+<tr><td class="n">7</td><td class="a mono">0x80</td><td>CCMP receive decryption</td></tr>
+<tr><td class="n">8, 9, 10</td><td class="a mono">-</td><td>Protected-management / BIP stages, not ordinary data CCMP</td></tr>
+</tbody>
+</table>
+</div>
+<p>Completion is signalled on IRQ 18 and IRQ 20. The vendor handler clears the global owner, checks status bit 0 for classes 6 through 9, moves the descriptor to a deferred-completion list, starts the next queued operation, and runs callbacks outside interrupt context. The engine is globally serialized: one transfer at a time, key and AAD storage retained until completion, and a bounded FIFO/command wait (50 ms in the open firmware) that is fatal until an engine reset sequence is known.</p>
+
+<h2 id="phy">11. PHY / RF window (0x0ab8_0000)</h2>
+
+<p>The PHY and RF blocks occupy a 0x60000 window. Most of their register semantics are unknown: the vendor programs them with absolute-address/value sequences whose meaning is not recoverable from the image alone. Three categories are documented here: the loader-applied tables (which the Rust bootloader currently writes), the calibration engine, and the packet-DMA-adjacent words that firmware does read.</p>
+
+<h3>11.1 Loader-applied PHY tables</h3>
+<p>Section type 2 of the vendor container is not consumed by firmware. The download bootloader applies 41 address/value pairs directly before jumping to the low image, and four type-0 copies land in MAC/PHY memory. A custom downloader that skips them starts from an uninitialised PHY.</p>
+<div class="scroll">
+<table>
+<thead><tr><th>Section</th><th class="a">Destination</th><th class="a">Length</th><th>Contents</th></tr></thead>
+<tbody>
+<tr><td>type 2 (MMIO)</td><td class="a">address/value pairs</td><td class="a mono">0x148</td><td>41 pairs, listed in 11.2</td></tr>
+<tr><td>type 0 copy</td><td class="a mono">0x0ab8_1000</td><td class="a mono">0x400</td><td>MAC/PHY table</td></tr>
+<tr><td>type 0 copy</td><td class="a mono">0x0ab8_8400</td><td class="a mono">0x330</td><td>MAC/PHY table</td></tr>
+<tr><td>type 0 copy</td><td class="a mono">0x0ab8_8800</td><td class="a mono">0x330</td><td>MAC/PHY table</td></tr>
+<tr><td>type 0 copy</td><td class="a mono">0x0ab8_8c00</td><td class="a mono">0x330</td><td>MAC/PHY table</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>11.2 Loader MMIO table (41 pairs, in order)</h3>
+<div class="scroll">
+<table>
+<thead><tr><th class="n">#</th><th class="a">Address</th><th class="a">Value</th><th class="n">#</th><th class="a">Address</th><th class="a">Value</th></tr></thead>
+<tbody>
+<tr><td class="n">0</td><td class="a mono">0x0ab8_0004</td><td class="a mono">0x0000_0023</td><td class="n">21</td><td class="a mono">0x0ab8_0c10</td><td class="a mono">0x0000_0afb</td></tr>
+<tr><td class="n">1</td><td class="a mono">0x0ab8_0008</td><td class="a mono">0x0000_003f</td><td class="n">22</td><td class="a mono">0x0ab8_0c3c</td><td class="a mono">0x0803_f7a0</td></tr>
+<tr><td class="n">2</td><td class="a mono">0x0ab8_0014</td><td class="a mono">0x0000_001c</td><td class="n">23</td><td class="a mono">0x0ab8_0c28</td><td class="a mono">0x0000_0085</td></tr>
+<tr><td class="n">3</td><td class="a mono">0x0ab8_0018</td><td class="a mono">0x0000_002c</td><td class="n">24</td><td class="a mono">0x0ab8_0c30</td><td class="a mono">0x0000_00fc</td></tr>
+<tr><td class="n">4</td><td class="a mono">0x0ab8_001c</td><td class="a mono">0x0000_0044</td><td class="n">25</td><td class="a mono">0x0ab8_0000</td><td class="a mono">0x001e_27ff</td></tr>
+<tr><td class="n">5</td><td class="a mono">0x0ab8_0020</td><td class="a mono">0x0000_0041</td><td class="n">26</td><td class="a mono">0x0ab8_0044</td><td class="a mono">0x0150_0040</td></tr>
+<tr><td class="n">6</td><td class="a mono">0x0ab8_0024</td><td class="a mono">0x0000_003e</td><td class="n">27</td><td class="a mono">0x0ab8_8014</td><td class="a mono">0x0033_0003</td></tr>
+<tr><td class="n">7</td><td class="a mono">0x0ab8_0064</td><td class="a mono">0x0021_0140</td><td class="n">28</td><td class="a mono">0x0ab8_808c</td><td class="a mono">0x0000_103f</td></tr>
+<tr><td class="n">8</td><td class="a mono">0x0ab8_0070</td><td class="a mono">0x0000_0006</td><td class="n">29</td><td class="a mono">0x0ab8_8090</td><td class="a mono">0x1010_103f</td></tr>
+<tr><td class="n">9</td><td class="a mono">0x0ab8_0074</td><td class="a mono">0x0000_4040</td><td class="n">30</td><td class="a mono">0x0ab8_0c54</td><td class="a mono">0x0000_001f</td></tr>
+<tr><td class="n">10</td><td class="a mono">0x0ab8_0080</td><td class="a mono">0x0190_007e</td><td class="n">31</td><td class="a mono">0x0ab9_0008</td><td class="a mono">0xa290_9330</td></tr>
+<tr><td class="n">11</td><td class="a mono">0x0ab8_0108</td><td class="a mono">0x0020_0300</td><td class="n">32</td><td class="a mono">0x0aba_8040</td><td class="a mono">0x0007_7bbd</td></tr>
+<tr><td class="n">12</td><td class="a mono">0x0ab8_010c</td><td class="a mono">0x0000_0009</td><td class="n">33</td><td class="a mono">0x0aba_805c</td><td class="a mono">0x430c_261a</td></tr>
+<tr><td class="n">13</td><td class="a mono">0x0ab8_0110</td><td class="a mono">0x0050_01c2</td><td class="n">34</td><td class="a mono">0x0aba_8574</td><td class="a mono">0x090a_0f0f</td></tr>
+<tr><td class="n">14</td><td class="a mono">0x0ab8_0408</td><td class="a mono">0x0000_0081</td><td class="n">35</td><td class="a mono">0x0aba_8070</td><td class="a mono">0x0000_0004</td></tr>
+<tr><td class="n">15</td><td class="a mono">0x0ab8_040c</td><td class="a mono">0x0000_007f</td><td class="n">36</td><td class="a mono">0x0aba_8074</td><td class="a mono">0x3638_3939</td></tr>
+<tr><td class="n">16</td><td class="a mono">0x0ab8_0c48</td><td class="a mono">0x0050_0850</td><td class="n">37</td><td class="a mono">0x0aba_8550</td><td class="a mono">0x0003_6389</td></tr>
+<tr><td class="n">17</td><td class="a mono">0x0ab8_0c04</td><td class="a mono">0x0000_000d</td><td class="n">38</td><td class="a mono">0x0aba_8558</td><td class="a mono">0x1aa0_ffa2</td></tr>
+<tr><td class="n">18</td><td class="a mono">0x0ab8_0c08</td><td class="a mono">0x0010_00a0</td><td class="n">39</td><td class="a mono">0x0abb_0008</td><td class="a mono">0x0000_026d</td></tr>
+<tr><td class="n">19</td><td class="a mono">0x0ab8_0c24</td><td class="a mono">0x0007_fcef</td><td class="n">40</td><td class="a mono">0x0abb_0078</td><td class="a mono">0x0048_0035</td></tr>
+<tr><td class="n">20</td><td class="a mono">0x0ab8_0c1c</td><td class="a mono">0x0000_0004</td><td class="n"></td><td class="a"></td><td class="a"></td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>11.3 Calibration engine (0x0abb_80xx)</h3>
+<p>The calibration block is a command/result unit embedded in the PHY window. Firmware triggers a measurement, waits for a busy bit to clear, and reads two accumulators.</p>
+<div class="scroll">
+<table>
+<thead><tr><th class="a">Address</th><th>Role</th><th class="a">Conf.</th></tr></thead>
+<tbody>
+<tr><td class="a mono">0x0abb_8004</td><td>Calibration enable. Bit <code>0x0004_8000</code> set enables the engine, cleared disables it.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a mono">0x0abb_805c..0x0abb_8064</td><td>Three context words restored around band selection.</td><td class="a"><span class="tag S">S</span></td></tr>
+<tr><td class="a mono">0x0abb_80c0</td><td>Register-base value the vendor carries as the fourth argument through band select and IQ DAC setup.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a mono">0x0abb_80f0</td><td>Command register. Bit 4 reads set when the measurement completed. Mode command <code>0x0100_4008 + mode</code>; sample command <code>0x0800_000d</code>.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a mono">0x0abb_80f4</td><td>Timing: <code>0x0020_0078</code> for modes 2/3, <code>0x0020_0190</code> otherwise.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a mono">0x0abb_80f8</td><td><code>0x012c_00c8</code>.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a mono">0x0abb_810c / 0x0abb_8110</td><td>I and Q accumulators, decoded as the measured coefficient pair.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a mono">0x0abb_8114</td><td>Sample settings word: I in bits 8:0, Q in bits 24:16, plus <code>0x0100_0100</code>.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a mono">0x0abb_81a4</td><td>Calibration gain: <code>0x40 | gain</code> for non-negative gain, <code>0</code> otherwise.</td><td class="a"><span class="tag C">C</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>11.4 Words shared with the packet-DMA path</h3>
+<div class="scroll">
+<table>
+<thead><tr><th class="a">Address</th><th>Observed use</th><th class="a">Conf.</th></tr></thead>
+<tbody>
+<tr><td class="a mono">0x0ab9_8040</td><td>Cleared during <code>prepare_packet_dma()</code>, before packet DMA is enabled.</td><td class="a"><span class="tag C">C</span></td></tr>
+<tr><td class="a mono">0x0ab8_0c50</td><td>Read once per MAC event that carries the sideband marker; the read may be what acknowledges the capture. Value is not consumed otherwise.</td><td class="a"><span class="tag S">S</span></td></tr>
+<tr><td class="a mono">0x0abb_0010..0x0abb_0030</td><td>Interrupt routing words, section 3.3.</td><td class="a"><span class="tag C">C</span></td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="flows">12. Functional flows</h2>
+
+<p>This section describes each flow in the order the hardware requires. Register names refer to the sections above. Where an order is load-bearing, the reason is stated: a reordering that leaves identical final register values can still break the flow, and those cases are the ones that cost the most time to diagnose.</p>
+
+<h3 id="boot">12.1 Boot and image download</h3>
+
+<p>Before any firmware code runs, a ROM or SDIO bootloader parses a container and programs the device. The container is a sequence of typed sections; the bootloader applies each one in file order and then jumps to the entry address.</p>
+
+<pre><code>magic:  "XR01"
+copy:   type = 0, destination, length, data[length]
+fill:   type = 1, destination, value, length
+MMIO:   type = 2, byte_length, (address, value)[byte_length / 8]
+entry:  type = 4, entry_address, trailer</code></pre>
+
+<h4>Reference container layout</h4>
+<div class="scroll">
+<table>
+<thead><tr><th class="n">#</th><th>Kind</th><th class="a">Destination</th><th class="a">Length</th><th>Contents</th></tr></thead>
+<tbody>
+<tr><td class="n">0</td><td>copy</td><td class="a mono">0xfff0_0000</td><td class="a mono">0x001a7c</td><td>High ARM bootstrap and support routines</td></tr>
+<tr><td class="n">1</td><td>fill</td><td class="a mono">0xfff0_1a7c</td><td class="a mono">0x001d24</td><td>Zero, up to <code>0xfff037a0</code></td></tr>
+<tr><td class="n">2</td><td>fill</td><td class="a mono">0xfff0_37a0</td><td class="a mono">0x010860</td><td>Zero, ends at <code>0xfff14000</code></td></tr>
+<tr><td class="n">3</td><td>copy</td><td class="a mono">0x0000_0000</td><td class="a mono">0x01b3d0</td><td>Main Thumb/ITCM image</td></tr>
+<tr><td class="n">4</td><td>copy</td><td class="a mono">0x0400_0000</td><td class="a mono">0x0010f8</td><td>Initialized DTCM, first part</td></tr>
+<tr><td class="n">5</td><td>copy</td><td class="a mono">0x0400_10f8</td><td class="a mono">0x000f80</td><td>Initialized DTCM, second part</td></tr>
+<tr><td class="n">6</td><td>fill</td><td class="a mono">0x0400_2078</td><td class="a mono">0x007bcc</td><td>Zero, ends at <code>0x04009c44</code></td></tr>
+<tr><td class="n">7</td><td>MMIO</td><td class="a">address/value pairs</td><td class="a mono">0x000148</td><td>41 PHY/MAC pairs, section 11.2</td></tr>
+<tr><td class="n">8</td><td>copy</td><td class="a mono">0x0ab8_1000</td><td class="a mono">0x000400</td><td>MAC/PHY table</td></tr>
+<tr><td class="n">9</td><td>copy</td><td class="a mono">0x0ab8_8400</td><td class="a mono">0x000330</td><td>MAC/PHY table</td></tr>
+<tr><td class="n">10</td><td>copy</td><td class="a mono">0x0ab8_8800</td><td class="a mono">0x000330</td><td>MAC/PHY table</td></tr>
+<tr><td class="n">11</td><td>copy</td><td class="a mono">0x0ab8_8c00</td><td class="a mono">0x000330</td><td>MAC/PHY table</td></tr>
+<tr><td class="n">12</td><td>entry</td><td class="a mono">0xfff0_0000</td><td class="a">-</td><td>Trailer <code>0x3994defa</code>, not a CRC32 of the stream</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>For a rebuilt image, do not use <code>objcopy -O binary</code>: the holes between ITCM, DTCM and high SRAM are enormous. Convert ELF program headers into compact copy/fill records instead. Accepted write ranges are the observed ITCM, DTCM (<code>0x0400_0000..0x0400_a000</code>) and high-support (<code>0xfff0_0000..0xfff1_4000</code>) windows; anything else is rejected before the jump.</p>
+
+<div class="box ok">
+<p><strong>Ordering proof point.</strong> The five PHY/MAC load groups are part of image loading, not firmware behaviour. A rebuild that omits them still boots and links, then fails in ways that look like MAC or calibration bugs. Reapplying all five groups before entering the low image keeps scan, probe, configuration and empty-scan completion working.</p>
+</div>
+
+<h3 id="bringup">12.2 Platform bring-up order</h3>
+
+<p>The vendor fixes the order in <code>0x000164bc</code>. It is not a suggestion: several blocks must be programmed before the memory and clock remapping they depend on, and two of them (the <code>+0xac800bc</code> update and the <code>0x0aa80004 = 0x200</code> transition) mark points after which earlier aliases stop working.</p>
+
+<div class="seq">wait until DTCM word 0x04001428 reads 0
+0x00015926                      no-op in this image
+0x0ac800bc                     clear bit 0, set bit 23
+0x000009e0                     remap/platform preparation
+0x00000ba8 -&gt; 0x00000a74        high-bootstrap platform/IRQ setup
+0x00015b60                     diagnostic console setup
+0x00000c58 -&gt; 0x00000bb0        DMA/clock setup, IRQ 4 registration
+0x00000ab4                     HIF activation and wait
+0x00000c38                     IRQ 6 registration
+0x00000a88                     IRQ 18 and IRQ 20 registration
+0x00000b88                     IRQ 21 registration
+0x000009ac                     complete subsystem initialization
+0x0abb0010..0x0abb0030         interrupt routing words
+0x00016550                     write-buffer drain, IRQ/FIQ enable
+0x0000f140                     scheduler entry</div>
+
+<h4>What <code>0x000009e0</code> does</h4>
+<ol>
+<li>Sample all eight remap windows through <code>0x0aa80008</code>/<code>0x0aa8002c</code>, and relocate windows 3, 4 and 5.</li>
+<li>If window 0 bit 27 is clear: set startup mode 3, set <code>feature_control |= 0x0018_0200</code>, clear <code>system_control.control</code> bit 5 and set bit 6, set <code>secondary_control</code> bit 6, then poll <code>status</code> bit 5. If it reads 0 (it does on this device), clear <code>secondary_control</code> bit 6 and drop startup mode to 1. Restore <code>feature_control</code>.</li>
+<li>Start timer 0 free-running: load <code>0xffff_ffff</code>, prescale <code>0x4f</code>, control <code>0x80</code>. Prescale timer 1 to <code>0x4f</code>, mode 0.</li>
+<li>Reset the interrupt controller: configuration <code>0x1600_a037</code>, clear and acknowledge all sources, vector base, enable 0, control 1.</li>
+<li>Mask clock sources: <code>mask_44 &amp;= 0x7fff_f777</code>, <code>mask_48 &amp;= 0x777f_ffff</code>.</li>
+</ol>
+
+<h4>What <code>0x00000bb0</code> does</h4>
+<ol>
+<li>Drain the write buffer, then reprogram <code>system_control</code>: clear bit 7, set bit 4; clear <code>secondary_control</code> bit 4.</li>
+<li><code>mask_48 |= 0xf0</code>, <code>mask_40 |= 0x00f0_0000</code>.</li>
+<li><code>platform_control.shared_pointer = 0x0004_0090</code>, <code>power_control = 0x10</code>, and (if no remap windows) <code>configuration |= 0x0012_0000</code>.</li>
+<li><code>clock_reset.control_04 = 0x200</code>. After this write, the <code>0x0900ff98</code> alias may stop reading; that is a mapping change.</li>
+<li><code>parameter_a0 = 31</code>, <code>parameter_9c = 6</code>, then poll <code>ready_status</code> bit 0 (bounded).</li>
+<li><code>clock_flags = 0x0c02</code> if <code>clock_status</code> bit 3 is clear, else <code>0x0042</code>.</li>
+</ol>
+
+<div class="box bad">
+<p><strong>Trap: stack placement.</strong> The Rust stack must be in low SRAM across the <code>0x0aa80004</code> transition. An image that kept its stack in the <code>0xfffxxxxx</code> window failed at exactly this step, and the failure looked like a packet-memory access fault. With the stack below the transition, the same code passes.</p>
+</div>
+
+<h3 id="bringup-pdm">12.3 Packet DMA and subsystem initialization</h3>
+
+<p><code>0x000009ac</code> is the routine that makes packet memory usable and then builds the startup indication. Its callees run in this order, and the ordering constraints inside them are documented per call:</p>
+
+<pre><code>0x000009ac
+  ├─ 0x0000094c   HIF buffer geometry
+  ├─ 0x000000f6   packet DMA + MAC pipes
+  │    ├─ 0x000000bc   register block
+  │    ├─ 0x0000f608   MAC timing block at 0x09c00e00
+  │    ├─ 0x0000f4f4   automatic response list, command fetch
+  │    ├─ 0x00000044   match entries, debug context
+  │    ├─ 0x0000fcfe   per-interface context
+  │    ├─ 0x000004c6   ...
+  │    ├─ IRQ 27 registration
+  │    └─ IRQ 26 registration
+  ├─ 0x00016d24   ...
+  ├─ 0x0000014c   MAC startup state
+  ├─ startup indication construction (0x000158a8)
+  └─ 0x000009ac tail</code></pre>
+
+<h4>Packet-DMA initialization order (as implemented)</h4>
+<ol>
+<li><code>0x0ab9_8040 = 0</code>, <code>0x09c0_080c = 0</code>.</li>
+<li>RX DMA: <code>configuration_0c = 0x80</code> <em>before</em> <code>control = 0x0102_0418</code>, then <code>configuration_1c = 7</code>, producer and consumer 0, <code>configuration_20 = 0x3000_0000</code>.</li>
+<li>MAC timing: <code>0x09c0_0200 = 0</code>, <code>0x0204 = 0</code>, <code>0x020c = 3</code>, <code>0x09c1_0000 = 0</code>, then the response block <code>0x0a00 = 0x1030_0000</code>, <code>0x0a04 = 0</code>, <code>0x0a1c = 0</code>.</li>
+<li>TSF block: <code>0x0e00 = 0x4f00_004f</code>, <code>0x0e04 = 0x0909_0000</code>, offsets <code>0x08..0x2c</code> cleared, then <code>0x0e34 = 0</code> and only then <code>0x0e34 = 3</code>.</li>
+<li><code>0x0e60 = 2</code>, <code>0x0e80 = 0x100</code>, <code>0x0e88 = 0xff</code>.</li>
+<li>For pipe pairs (0,1) and (2,3): command base, command length <code>0x54</code>, GO = 1.</li>
+<li><code>0x0e8c = 0xbf</code> (command fetch on), then the automatic response list: head <code>0x4e14_0000</code>, 33 entries <code>0x2200_0000 | offset</code>, terminator <code>0xf000_0000</code>.</li>
+<li><code>0x09c0_1300 = 0</code> then <code>0x0100_0000</code>; four match entries initialised to disabled.</li>
+<li>Debug context: parameters written first, base <code>0x1400 = 0</code> <em>last</em>.</li>
+<li>MAC receive hardware: the fixed register image at <code>0x09c0_0000..0x00d4</code>, <code>0x09c0_0060..0x00f0</code>, and the slot-timing block at <code>0x09c0_0200</code>.</li>
+<li>Packet controller: <code>0x09c0_1000 = 1</code>.</li>
+</ol>
+
+<div class="box warn">
+<p><strong>Three orderings that are not interchangeable even though the final register image is identical.</strong></p>
+<ul>
+<li>RX DMA <code>+0x0c</code> before <code>+0x00</code>: writing control first exposes the controller to a stale configuration word across the transition.</li>
+<li><code>0x0e34</code> zero then three: if the register has sticky or write-one-to-set bits, a direct write of 3 is a different event.</li>
+<li>Debug context <code>+0x00</code> last: writing the base first transiently publishes whatever <code>+0x04..+0x10</code> held.</li>
+</ul>
+<p>Each of these was a real bug that left the final values correct.</p>
+</div>
+
+<h3 id="hif-flow">12.4 HIF activation and host handshake</h3>
+
+<p>Activation is a two-sided handshake. Firmware publishes the input descriptor ring, enables the HIF interrupt source, sets the length mask, and then waits for the host to clear the startup bit. Nothing else in the HIF works before that.</p>
+
+<div class="seq">firmware                                    hardware                     host
+   |                                            |                           |
+   |-- publish 30 RX descriptors ---------------&gt;|                           |
+   |   address = cpu &amp; 0xf6ff_ffff              |                           |
+   |   control = len|1, seq                     |                           |
+   |-- enable IRQ 13 --------------------------&gt;|                           |
+   |-- +0x28 = 0x7ff (ack all causes) ----------&gt;|                           |
+   |-- +0x20 = 0x7ff (or 0x7f7) ---------------&gt;|                           |
+   |                                            |                           |
+   |   (vendor 0x00000ab4)                      |                           |
+   |-- read 0x0ab00140 -------------------------&gt;|  activation = 2           |
+   |-- poll 0x0ab00134 bit 10 until clear ------&gt;|  startup_status           |
+   |                                            |&lt;----- host writes --------|
+   |                                            |       activation          |
+   |-- build startup indication (0x0801) -------|                           |
+   |-- enqueue to TX descriptor ring ----------&gt;|-- DMA read --------------&gt;|</div>
+
+<h4>Startup indication payload</h4>
+<p>ID <code>0x0801</code>, sent as the first firmware-to-host message. Field order is fixed by the host driver:</p>
+<div class="scroll">
+<table>
+<thead><tr><th class="a">Offset</th><th>Field</th><th>Note</th></tr></thead>
+<tbody>
+<tr><td class="a">0x00</td><td>input_buffers</td><td>30 in the reference container</td></tr>
+<tr><td class="a">0x02</td><td>input_buffer_size</td><td><code>0x660</code></td></tr>
+<tr><td class="a">0x04</td><td>hardware_id</td><td>Identifies the XR819 family</td></tr>
+<tr><td class="a">0x06</td><td>hardware_sub_id</td><td>Board/stepping variant</td></tr>
+<tr><td class="a">0x08</td><td>status</td><td>Success/failure of initialization</td></tr>
+<tr><td class="a">0x0a</td><td>firmware_capabilities</td><td>Feature bits the host may use</td></tr>
+<tr><td class="a">0x0c</td><td>firmware_type</td><td>WSM firmware class, not vendor identity</td></tr>
+<tr><td class="a">0x0e</td><td>firmware_api</td><td>WSM API revision</td></tr>
+<tr><td class="a">0x10</td><td>firmware_build</td><td>Build number</td></tr>
+<tr><td class="a">0x12</td><td>firmware_version</td><td>Version word</td></tr>
+<tr><td class="a">0x14</td><td>label[128]</td><td>Free-form build label, NUL padded</td></tr>
+<tr><td class="a">0x94</td><td>config[4]</td><td>Four configuration words</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>12.5 Receive path</h3>
+
+<div class="seq">packet DMA                    firmware main loop                 HIF
+    |                                 |                             |
+    |-- write slot at producer -----&gt; |                             |
+    |   header: magic, next, state    |                             |
+    |   frame, trailer                |                             |
+    |-- producer advances ----------&gt; |-- read 0x0604 (producer)    |
+    |                                 |-- validate magic + length   |
+    |                                 |-- read frame + trailer      |
+    |                                 |-- build WSM 0x0804 message  |
+    |                                 |    header + frame           |
+    |                                 |-- stage into TX descriptor -&gt;|
+    |                                 |   (4-deep ring, seq bits)    |
+    |&lt;-- write 0x0608 (consumer) -----|                             |
+    |   release slot (state=0xcccccc00)                             |
+    |                                 |&lt;---- host reads buffer -----|
+    |                                 |-- reclaim descriptor         |
+    |                                 |-- return RX buffer to ring --|</div>
+
+<h4>What the firmware must get right</h4>
+<ol>
+<li><strong>Producer read is a snapshot.</strong> Treat it as an upper bound, not a promise that everything below it is complete; validate magic and length before trusting a slot.</li>
+<li><strong>Offsets are modulo <code>0x7000</code></strong> on the CPU side, and a slot that starts near the end of the ring spills linearly into the next <code>0x1000</code> bytes of storage. Do not wrap a slot's interior.</li>
+<li><strong>Release only what was claimed.</strong> Writing a larger consumer value than the slots actually processed loses frames silently.</li>
+<li><strong>Return RX buffers in the order they were read.</strong> The radio publishes at most 24 FIFO slots before it takes them back, and the return queue is 64 entries of tokens.</li>
+<li><strong>Resynchronization is real.</strong> When a slot's internal next pointer disagrees with the producer, the vendor re-derives the consumer by scanning for the next magic slot. Doing that too aggressively costs frames; not doing it stalls the ring.</li>
+</ol>
+
+<h3 id="tx">12.6 Transmit path</h3>
+
+<div class="seq">HIF request      firmware                                   MAC pipe                  air
+    |                |                                            |                        |
+    |-- 0x0004 -----&gt;| retain context (frame borrowed)            |                        |
+    |                | classify header, select key                |                        |
+    |                |-- AES encrypt in place (optional) -------&gt;|                        |
+    |                | build command descriptor in packet RAM     |                        |
+    |                |   words: 0x51, 0x50, 0x52, 0x32, 0x29,     |                        |
+    |                |          0x07.., 0x40, 0x07.., 0xf0        |                        |
+    |                | write descriptor flags                     |                        |
+    |                |-- ring +0x0c base, +0x10 len, +0x14 GO=1 -&gt;| fetch command          |
+    |                |-- push airtime to ring +0x00 -------------&gt;|                        |
+    |                |                                            |-- transmit -----------&gt;|
+    |                |&lt;-- event: start (type 3) ------------------|                        |
+    |                |&lt;-- event: success / status ---------------|&lt;-- ACK/BA ------------|
+    |                | resolve status, retry or retire            |                        |
+    |                |-- build 0x0404 confirmation -------------&gt;|                        |
+    |&lt;-- host reads --|                                            |                        |</div>
+
+<h4>Publication checklist</h4>
+<ol>
+<li><strong>Reserve the slot</strong> in the pipe registry (state 0), keeping the previous image so an abort can restore it.</li>
+<li><strong>Build the descriptor</strong> completely before any MAC-visible write. The descriptor lives in a packet-RAM command slot owned exclusively by that pipe and slot index.</li>
+<li><strong>Set the descriptor flags word</strong> and push the airtime word into the ring's duration FIFO.</li>
+<li><strong>Write GO = 1</strong> as the last write, after a write-buffer drain. The MAC fetching a partially written descriptor is not recoverable.</li>
+<li><strong>Record the publication</strong> (pipe, slot, context, frame address, command base) so that start, status and completion events can be matched. A completion for an unowned slot must be rejected before any dereference.</li>
+<li><strong>Advance on the event FIFO</strong>, not on the register readback: the pipe's cursor register can move before the event that describes the frame.</li>
+</ol>
+
+<div class="box">
+<p><strong>Why the descriptor is not a plain packet buffer.</strong> The MAC executes the command word stream. It can insert values (frame control, timestamps), source bytes (interface metadata), and split header from payload with different encodings, including a DMA bus address for the payload. That is what allows one descriptor template to serve beacons, ACK/CTS responses, BlockAcks and ordinary data.</p>
+</div>
+
+<h3 id="ampdu">12.7 A-MPDU aggregation flow</h3>
+
+<p>An aggregate is one descriptor whose command stream transfers each member, delimits it, and ends with a terminal command. Members live in a per-pipe software record of <code>0x2a0</code> bytes, and each member has a retained identity so that a later selective retry cannot consume another member's state.</p>
+
+<div class="seq">negotiated BA session (MIB 0x100e, ADDBA)
+    |
+    |-- choose members from the per-AC queue, bounded by the peer's
+    |   minimum MPDU start spacing (MIB 0x1010, 0..=7)
+    |
+    |-- for each member: build transfer word 0x65000000 | (addr &amp; 0x001ffffc)
+    |-- between members: 0x66000000
+    |-- close: 0xe4000000
+    |
+    |-- publish once, push one airtime word, GO
+    |
+    |&lt;-- compressed BlockAck observed, bitmap retained against the two
+    |    exact frame-node identities
+    |-- selective retry: re-arm only the members the bitmap rejects</div>
+
+<p>Observed behaviour when the stream is perturbed (each attempt was a hardware run):</p>
+<div class="scroll">
+<table>
+<thead><tr><th>Change</th><th>Result</th></tr></thead>
+<tbody>
+<tr><td>Delimiter <code>0x6600_0001</code> (ignored low bit)</td><td>Ordinary operation preserved</td></tr>
+<tr><td>Delimiter <code>0x6700_0000</code></td><td>Only second-member loss: 52 selective second retries and 8 second terminals in 5 s, confirming the delimiter controls the boundary before member two</td></tr>
+<tr><td>First transfer <code>0x6400_0000</code></td><td>Aggregation never became operational, 8 buffers left behind</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3 id="ccmp">12.8 AES/CCMP transfer flow</h3>
+
+<div class="seq">classify frame
+    |
+    |-- wait for bit 12 clear before issuing a command; later stages also wait for bit 13 set
+    |-- if key not loaded: 4 FIFO words (16 key bytes), then 0x1100
+    |-- write 16-byte CCM context block, then 0x1240
+    |-- write AAD stream: 2-byte BE length + AAD bytes, then 0x1403/0x1402
+    |-- write remaining AAD words and the length-specific tail command (TX values in §10.2; subtract one for RX)
+    |-- source, destination, length
+    |-- write barrier
+    |-- start: 0x3008_1009 (TX) or 0x3008_1008 (RX)
+    |
+    |&lt;-- IRQ 18 or 20
+    |-- read status: bit 0 is the MIC check for decryption
+    |-- next queued operation (the engine is globally serialized)</div>
+
+<p>Firmware invariants: one transfer at a time device-wide; key, AAD and payload storage retained until completion; DMA-visible uncached memory; a write barrier before the start word; bounded FIFO and command waits, treated as fatal until a reset sequence is known.</p>
+
+<h3 id="sleep">12.9 Interrupts and idle sleep</h3>
+
+<p>The firmware services interrupts but keeps FIQ masked. The MAC's event line is FIQ: it ends a wait-for-interrupt without ever appearing as a pending source.</p>
+
+<div class="seq">_irq_handler (IRQ mode, IRQ+FIQ masked)
+    pending = controller.pending
+    controller.enable &amp;= ~pending       mask every pending source
+    controller.acknowledge = pending    clear them
+    RAISED |= pending                   record for the owner
+
+main loop
+    owner takes its bit from RAISED, clears the cause in its device,
+    then re-arms its source
+
+idle path
+    if nothing changed for 5 ms: arm timer 1 for the next deadline,
+    mask IRQ, check once more, then WFI</div>
+
+<p>Why the masking matters: a level source (HIF) cannot re-enter the handler before its owner ran, and a latched source (AES, timer) is not lost while its owner is busy. Main-loop state is never touched from the handler.</p>
+
+<h4>Linger and wake policy</h4>
+<p>While work is in flight (frames queued for the MAC, mid-decryption, held for reordering, or output the host has not read) a sleep lasts at most 1 ms: not every step raises an interrupt or names a deadline. After 5 ms of idle passes the loop sleeps until the next timed work: the pipe watchdog every 200 ms, beacon loss, an ADDBA response timeout, a missing BlockAck, the end of a scan dwell, or the next probe delay. A scan that tunes, settles or stops the radio keeps the loop awake.</p>
+
+<div class="scroll">
+<table>
+<thead><tr><th>Condition</th><th class="n">Downlink loss (30 Mbit/s)</th><th>Note</th></tr></thead>
+<tbody>
+<tr><td>Sleep between frames, 1 ms bound, minimal host driver</td><td class="n">0.5 - 7 %</td><td>Worse with the write buffer drained before each wait</td></tr>
+<tr><td>Same, 200 &micro;s bound</td><td class="n">0.5 - 7 %</td><td>The bound does not matter, the wait itself does</td></tr>
+<tr><td>Busy-wait on the same conditions</td><td class="n">0 - 0.1 %</td><td>No wait-for-interrupt at all</td></tr>
+<tr><td>Sleep between frames, stack driver</td><td class="n">0.03 - 0.04 %</td><td>Vendor firmware: 0.01 - 0.04 %</td></tr>
+<tr><td>Linger policy (current), stack driver</td><td class="n">0.03 - 0.06 %</td><td>Frames of a flow keep the loop awake</td></tr>
+</tbody>
+</table>
+</div>
+<p class="small">An associated idle board wakes about 20 times per second for beacons and the watchdog, and sleeps about 99 % of the time.</p>
+
+<h2 id="cookbook">13. Programming sequences</h2>
+
+<p>These are the sequences as checklists. Each step is a register write or a bounded poll; anything that must be quiescent is marked.</p>
+
+<h3>13.1 Cold bring-up</h3>
+<ol>
+<li>Apply the five loader groups (4 copies + 41 MMIO pairs).</li>
+<li>Clear firmware <code>.bss</code>; initialize boot state (startup mode 1, no remap windows).</li>
+<li><code>0x0ac8_00bc</code>: clear bit 0, set bit 23.</li>
+<li>Sample and relocate the eight remap windows; run the memory probe and select startup mode.</li>
+<li>Start timer 0 (free-running), configure timer 1; reset the interrupt controller; mask clock sources.</li>
+<li>Drain; program <code>system_control</code>; set clock masks; <code>shared_pointer</code>, <code>power_control</code>, <code>configuration |= 0x0012_0000</code> when applicable.</li>
+<li><code>clock_reset.control_04 = 0x200</code> (stack must already be in low SRAM).</li>
+<li><code>parameter_a0 = 31</code>, <code>parameter_9c = 6</code>, poll <code>ready_status</code> bit 0, write <code>clock_flags</code>.</li>
+<li>HIF: publish the descriptor ring, enable IRQ 13, ack and set the length mask; the vendor routine waits for startup bit 10 to clear.</li>
+<li>Register IRQs 6, 18, 20; later 26.</li>
+<li>Packet DMA initialization (section 12.3), including the response list and MAC receive image.</li>
+<li>Enable the packet controller, build and send the startup indication.</li>
+<li>Enable IRQ/FIQ, apply the routing words, enter the scheduler.</li>
+</ol>
+
+<h3>13.2 Channel change</h3>
+<ol>
+<li>Stop the radio: <code>0x0a28 = 0</code>, <code>0x0a00 = 0x1030_0000</code>, restore the beacon selector, point every response pointer slot at the idle descriptor.</li>
+<li>Drain RX in software; PHY command 7 for the new channel; program <code>phy_set_band_reg</code>.</li>
+<li>Publish the rate-RAM base at <code>0x09c0_0800</code>; reprogram the rate tables of every active record; rebuild and reinstall the immediate response descriptors.</li>
+<li>Write the mode word <code>0x0200</code>, then the filter/mask registers of section 8.2.</li>
+<li>Restore slot timings (a joined station uses a 9 &micro;s base; the scan record's timing word is zero).</li>
+<li>Save the debug context at <code>0x1400..0x1410</code>, base last.</li>
+</ol>
+
+<h3>13.3 Beacon start and stop</h3>
+<ol>
+<li><code>build_beacon_descriptor()</code>: response command 3 gets the gap word, fixed backoff, PHY words, frame control, payload address, timestamp macro, terminator.</li>
+<li><code>start_beaconing()</code>: put an idle descriptor in pointer slot <code>0x10</code>; write <code>0x0e94</code> with the airtime of 24 octets at the beacon rate.</li>
+<li><code>arm_beacon(tbtt)</code>: pointer slot 0 = response command 3, <code>0x0a00 = 0x1030_0001</code>, <code>0x0e08 = 0x4000_0000 | (tbtt &amp; 0x00ff_ffff)</code>.</li>
+<li><code>disarm_beacon()</code>: <code>0x0e08 = 0</code>, <code>0x0a00 = 0x1030_0000</code>, pointer slot 0 = idle descriptor.</li>
+</ol>
+
+<h3>13.4 Publishing one HIF output message</h3>
+<ol>
+<li>Check status bit 1 was seen since the last drain; confirm ring capacity (<code>producer - consumer &lt; 4</code>).</li>
+<li>Write the message length and id into the buffer; rewrite the id with the two sequence bits.</li>
+<li>Write the descriptor: bus address, control = <code>((len+1) &amp; 0x1ffe) | 1</code> plus sequence.</li>
+<li>Advance the producer.</li>
+<li>On status bit 1: for each descriptor whose control bit 0 is clear, in order, re-stage the next message <em>before</em> releasing the completed buffer.</li>
+</ol>
+
+<h3>13.5 Selective A-MPDU retry</h3>
+<ol>
+<li>Validate the retained aggregate identity (two exact frame-node addresses, command base, pipe, slot).</li>
+<li>Decode the compressed BlockAck bitmap; members it rejects become retry candidates.</li>
+<li>For each candidate: validate the same identity again, build the transfer word, and re-arm the command mask bit.</li>
+<li>Re-publish with a fresh duration word and GO; count the retry against that pipe-slot key, not a global counter.</li>
+<li>On exhaustion, retire the member to a give-up pair and release its command mask.</li>
+</ol>
+
+<h2 id="evidence">14. Measured behaviour and validation</h2>
+
+<p>Hardware runs behind the claims in this document. These are the ones that changed a design decision.</p>
+
+<div class="scroll">
+<table>
+<thead><tr><th>Observation</th><th>Result</th><th>Consequence</th></tr></thead>
+<tbody>
+<tr><td>Sleep duration vs request</td><td>1,001 / 20,001 / 7 &micro;s for 1,000 / 20,000 / 5 &micro;s</td><td>Timer 1 is a valid wake source; below ~7 &micro;s it is not a delay primitive</td></tr>
+<tr><td>Wake source during RX</td><td>3,681 of 3,707 sleeps ended with no controller source pending, while the RX producer moved</td><td>MAC FIQ (source 0x16) ends the wait; it is invisible in pending and raw registers</td></tr>
+<tr><td>Enabling every source</td><td>9, 24, 28 stay pending; acknowledging 28 stops RX within seconds</td><td>Leave 9, 24, 28 alone; drain the event FIFO from the main loop</td></tr>
+<tr><td>UART IRQ 0 enabled</td><td>Ends every wait immediately</td><td>Print nothing means enable nothing</td></tr>
+<tr><td>Replaying the routing words</td><td>No measurable change</td><td>Semantics unproven; safe to replay, not required</td></tr>
+<tr><td>Sectioned downloader, three records</td><td>Healthy WSM idle, no leaked buffers, normal scan traffic, 7 APs retained</td><td>The host-visible file may differ from the runtime image</td></tr>
+<tr><td>Coherent JOIN ELF (no binary splicing)</td><td>Linux reported <code>CW1200 WSM init done</code> with <code>XR819 open Rust WSM</code></td><td>HIF startup blocker closed</td></tr>
+<tr><td>Active-probe scan with sectioned build</td><td>First start-scan request timed out, one host buffer outstanding</td><td>Stall localised to active-probe preparation, not scan/channel handling</td></tr>
+<tr><td>Passive sectioned build</td><td>Normal scanning, 49 frames received, 9 APs retained</td><td>Scan and channel machinery works without probes</td></tr>
+<tr><td>JOIN + host management TX</td><td>Linux issued repeated authentication frames without <code>wsm_join failed</code>; all buffers returned</td><td>JOIN path works to authentication</td></tr>
+<tr><td>Air capture during that JOIN</td><td>0 frames from the station address among 1,826 valid channel-1 frames</td><td>TX publication completes but nothing reaches the air: the residual blocker</td></tr>
+<tr><td>Invalid PHY timing values at <code>0x0200+0x30/0x260</code></td><td>Association 13-41 s instead of ~2 s</td><td>Those words look like DTCM addresses but are timing values</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>14.1 Register-image equivalence is not behavioural equivalence</h3>
+<p>Several bugs in this device's history had identical final register images and different behaviour. The three documented in 12.3 are the ones that were isolated. The general rule for this block: if the vendor writes a value in a particular position in a sequence, keep the position, not just the value.</p>
+
+<h2 id="unknowns">15. Open questions and errata</h2>
+
+<div class="scroll">
+<table>
+<thead><tr><th>Item</th><th>Status</th><th>Test that would settle it</th></tr></thead>
+<tbody>
+<tr><td>AES direction-to-IRQ mapping (18 vs 20)</td><td><span class="tag Q">HYPOTHESIS</span> both registered, direction unassigned</td><td>Single TX-only and RX-only transfers with one line masked</td></tr>
+<tr><td>IRQ 4 and 21 handlers</td><td><span class="tag Q">HYPOTHESIS</span> role unknown, left disabled</td><td>Trace the vendor callbacks' first register access</td></tr>
+<tr><td>IRQ 26 role</td><td><span class="tag S">INFERRED</span> TSF adjustment</td><td>Force a TSF sync (beacon TIM) and watch <code>0x0e34</code></td></tr>
+<tr><td>Routing words 0x0abb_0010..30</td><td><span class="tag Q">HYPOTHESIS</span> replay is harmless but purposeless</td><td>Vary one word and measure interrupt latency per source</td></tr>
+<tr><td>PHY register semantics</td><td><span class="tag Q">HYPOTHESIS</span> opaque address/value pairs</td><td>Per-register ablation against a calibrated throughput baseline</td></tr>
+<tr><td>Command-word opcode classes not in 9.3</td><td><span class="tag Q">HYPOTHESIS</span></td><td>Descriptor ISA audit against vendor <code>txp_desc_emit</code></td></tr>
+<tr><td>Prefetch/fetch state at <code>0x0e8c</code></td><td><span class="tag S">INFERRED</span> must be written only while quiescent</td><td>Cycle it under a running fetch engine and count malformed frames</td></tr>
+<tr><td>First A-MPDU member loss</td><td><span class="tag S">INFERRED</span> not controllable from software</td><td>External attenuator or an in-channel interferer</td></tr>
+<tr><td>Absent frames after successful publication (14)</td><td>Open blocker</td><td>Compare descriptor words and pipe state against vendor immediately before GO</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="box bad">
+<p><strong>Erratum 1: do not re-write the TX ring while the MAC is live.</strong> Writing <code>ring+0x14</code> (GO) and cycling <code>0x0e8c</code> during operation leaves the final values correct and corrupts fetch behaviour. The vendor programs these exactly once, before MAC core enable.</p>
+</div>
+<div class="box bad">
+<p><strong>Erratum 2: TSF control is edge-sensitive in practice.</strong> Write <code>0x0e34 = 0</code> and then <code>3</code>. A single write of 3 was the first deviation found in the vendor comparison and remains a suspected cause of rare TSF/event anomalies.</p>
+</div>
+<div class="box warn">
+<p><strong>Erratum 3: the scan filter value excludes compressed BlockAck frames.</strong> The synthetic-scan mode word uses <code>0x0204 = 0x0019_8000</code>, which drops received compressed BlockAcks from packet DMA even when the AP sends them and TX status completes. A joined station must use <code>0x0279_fe00</code>.</p>
+</div>
+
+<h2 id="appendix-a">Appendix A. Packet-RAM address encodings</h2>
+
+<p>The same storage has several hardware representations. They are not interchangeable, and mixing them produces silent corruption rather than a fault.</p>
+
+<div class="scroll">
+<table>
+<thead><tr><th>Class</th><th class="a">Shape</th><th>Valid use</th></tr></thead>
+<tbody>
+<tr><td>CPU runtime address</td><td class="a mono">0x0900_7000..0x0901_6630</td><td>CPU loads/stores and software ownership records</td></tr>
+<tr><td>CPU RX FIFO address</td><td class="a mono">0x0940_0000..0x0940_8000</td><td>CPU access to FIFO slots after bounded offset normalisation</td></tr>
+<tr><td>MAC 23-bit offset</td><td class="a mono">cpu &amp; 0x007f_ffff</td><td>MAC registers and command-word operands</td></tr>
+<tr><td>DMA/HIF bus address</td><td class="a mono">cpu &amp; 0xf6ff_ffff</td><td>HIF, AES/MIC and packet-DMA descriptors</td></tr>
+<tr><td>A-MPDU transfer</td><td class="a mono">0x6500_0000 | (cpu &amp; 0x001f_fffc)</td><td>MAC command streams only</td></tr>
+<tr><td>RX FIFO logical offset</td><td class="a mono">offset &lt; 0x7000</td><td>Producer/consumer accounting only</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>A bus encoding is never a CPU pointer. Decoding a hardware word by OR-ing a CPU base, or using the masked value directly as a pointer, is invalid unless an independently owned CPU-form identity proves the target object. In the open firmware, production <code>0x007f_ffff</code> and <code>0xf6ff_ffff</code> masks exist only inside the packet-RAM module; every caller supplies a linker-owned root or an object base.</p>
+
+<h2 id="appendix-b">Appendix B. WSM message identifiers</h2>
+
+<p>The HIF carries CW1200-compatible WSM messages: a 4-byte header (<em>length</em>, <em>id</em>, both little-endian) followed by a payload. Identifiers relevant to the flows above:</p>
+<div class="scroll">
+<table>
+<thead><tr><th class="a">ID</th><th>Direction</th><th>Message</th><th class="a">ID</th><th>Direction</th><th>Message</th></tr></thead>
+<tbody>
+<tr><td class="a mono">0x0004</td><td>host &rarr; fw</td><td>TX request</td><td class="a mono">0x0404</td><td>fw &rarr; host</td><td>TX confirm</td></tr>
+<tr><td class="a mono">0x0005</td><td>host &rarr; fw</td><td>Read MIB</td><td class="a mono">0x0405</td><td>fw &rarr; host</td><td>Read MIB response</td></tr>
+<tr><td class="a mono">0x0006</td><td>host &rarr; fw</td><td>Write MIB</td><td class="a mono">0x0406</td><td>fw &rarr; host</td><td>Write MIB response</td></tr>
+<tr><td class="a mono">0x0007</td><td>host &rarr; fw</td><td>Start scan</td><td class="a mono">0x0407</td><td>fw &rarr; host</td><td>Start scan response</td></tr>
+<tr><td class="a mono">0x0008</td><td>host &rarr; fw</td><td>Stop scan</td><td class="a mono">0x080f</td><td>fw &rarr; host</td><td>JOIN complete</td></tr>
+<tr><td class="a mono">0x0009</td><td>host &rarr; fw</td><td>Configuration</td><td class="a mono">0x0409</td><td>fw &rarr; host</td><td>Configuration response</td></tr>
+<tr><td class="a mono">0x000a</td><td>host &rarr; fw</td><td>Reset</td><td class="a mono">0x040a</td><td>fw &rarr; host</td><td>Reset response</td></tr>
+<tr><td class="a mono">0x000b</td><td>host &rarr; fw</td><td>JOIN</td><td class="a mono">0x040b</td><td>fw &rarr; host</td><td>JOIN response</td></tr>
+<tr><td class="a mono">0x000c</td><td>host &rarr; fw</td><td>Add key</td><td class="a mono">0x040c</td><td>fw &rarr; host</td><td>Add key response</td></tr>
+<tr><td class="a mono">0x000d</td><td>host &rarr; fw</td><td>Remove key</td><td class="a mono">0x040d</td><td>fw &rarr; host</td><td>Remove key response</td></tr>
+<tr><td class="a mono">0x0010</td><td>host &rarr; fw</td><td>Set power mode</td><td class="a mono">0x0809</td><td>fw &rarr; host</td><td>Set-PM complete</td></tr>
+<tr><td class="a mono">0x0011</td><td>host &rarr; fw</td><td>Set BSS params</td><td class="a mono">0x0411</td><td>fw &rarr; host</td><td>Set BSS params response</td></tr>
+<tr><td class="a mono">0x0012</td><td>host &rarr; fw</td><td>TX queue params</td><td class="a mono">0x0412</td><td>fw &rarr; host</td><td>TX queue params response</td></tr>
+<tr><td class="a mono">0x0013</td><td>host &rarr; fw</td><td>EDCA params</td><td class="a mono">0x0413</td><td>fw &rarr; host</td><td>EDCA params response</td></tr>
+<tr><td class="a mono">0x0016</td><td>host &rarr; fw</td><td>Switch channel</td><td class="a mono">0x080a</td><td>fw &rarr; host</td><td>Switch channel indication</td></tr>
+<tr><td class="a mono">0x0017</td><td>host &rarr; fw</td><td>Start (AP)</td><td class="a mono">0x0804</td><td>fw &rarr; host</td><td>Receive indication</td></tr>
+<tr><td class="a mono">0x0018</td><td>host &rarr; fw</td><td>Beacon transmit</td><td class="a mono">0x0801</td><td>fw &rarr; host</td><td>Startup indication</td></tr>
+<tr><td class="a mono">0x001b</td><td>host &rarr; fw</td><td>Update IE</td><td class="a mono">0x041e</td><td>fw &rarr; host</td><td>Multi-TX confirm</td></tr>
+<tr><td class="a mono">0x001c</td><td>host &rarr; fw</td><td>Map link</td><td class="a mono">0x080c</td><td>fw &rarr; host</td><td>Suspend/resume indication</td></tr>
+</tbody>
+</table>
+</div>
+<p>Upstream <code>wsm_cmd_send()</code> pads every command by four bytes ("buggy SPI on CW1200"), so request parsers must take the length they need and ignore any tail bytes.</p>
+
+<h2 id="appendix-c">Appendix C. Evidence index</h2>
+
+<p>Source paths below are relative to <code>chips/xr819/</code>. The annotated decompilation and two notebooks were in the original development tree and are not shipped here. Their function names are annotations, not vendor symbols.</p>
+<div class="scroll">
+<table>
+<thead><tr><th>Source</th><th class="a">Path</th><th>Used for</th></tr></thead>
+<tbody>
+<tr><td>Vendor container and section parser</td><td class="a mono">tools/inspect-vendor-container.py</td><td>Section stream, 41 MMIO pairs, four copies</td></tr>
+<tr><td>Annotated decompilation</td><td class="a mono">xr819-annotated-re-code.md</td><td>Function names, argument provenance, ordering claims</td></tr>
+<tr><td>Startup flow notebook</td><td class="a mono">xr819-hif-startup-flow.md</td><td>Top-level order, <code>0x9ac</code>/<code>0xf6</code> callees, activation, routing words</td></tr>
+<tr><td>AES interface note</td><td class="a mono">xr819-aes-engine.md</td><td>Command words, AAD streams, transfer classes</td></tr>
+<tr><td>Interrupt and sleep note</td><td class="a mono">docs/interrupts-and-sleep.md</td><td>Measured wake behaviour, source survey, sleep-loss table</td></tr>
+<tr><td>Packet-RAM contract</td><td class="a mono">docs/packet-ram-address-contract.md</td><td>Address classes, ownership rules</td></tr>
+<tr><td>Container/layout note</td><td class="a mono">docs/vendor-container-layout.md</td><td>Section table, hardware validation of sectioned download</td></tr>
+<tr><td>Rust platform module</td><td class="a mono">src/platform.rs</td><td>Register blocks, byte-level init sequences, ordering comments</td></tr>
+<tr><td>Rust MAC module</td><td class="a mono">src/mac.rs</td><td>Mode words, response slots, slot timings, descriptor templates</td></tr>
+<tr><td>Rust HIF module</td><td class="a mono">src/hif.rs</td><td>Descriptor format, ring depth, status bits, reclaim ordering</td></tr>
+<tr><td>Rust radio module</td><td class="a mono">src/radio.rs</td><td>FIFO slot header and trailer layout, resynchronization</td></tr>
+<tr><td>Rust TX pipes</td><td class="a mono">src/tx/pipe.rs, src/tx/event.rs</td><td>Ring layout, GO, event scheduler word</td></tr>
+<tr><td>CCMP setup and frame masking</td><td><a href="../chips/xr819/src/crypto/engine.rs">engine.rs</a>, <a href="../chips/xr819/src/crypto/mod.rs">mod.rs</a></td><td>Separate ports for initialization and key/context input; command order and AAD masks</td></tr>
+<tr><td>Rust loader</td><td class="a mono">src/loader.rs</td><td>The 41 MMIO pairs verbatim</td></tr>
+</tbody>
+</table>
+</div>
+
+<p class="small">No web sources were used. The vendor image hash, container boundaries and the 41 register pairs were verified byte-for-byte against the matching container <code>fw_xr819.bin</code> (size 0x1fe44, SHA256 3e2462d476c9dfcb907cda1ba81d0a6d1bbee5e3207bdc1911ec5042d96fdfca).</p>
+
+<hr>
+<p class="small">End of document. Revision 2, 2026-11-19. Register semantics marked HYPOTHESIS are the intended target of the next measurement round; the falsification tests in section 15 are ordered by how much of the map they would settle.</p>
+
+</main>
+</body>
+</html>

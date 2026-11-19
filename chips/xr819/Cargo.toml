@@ -1,0 +1,39 @@
+[package]
+name = "xr819-firmware"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Experimental open firmware for the XRadio XR819"
+
+[lib]
+crate-type = ["rlib"]
+
+[[bin]]
+name = "download-boot-sectioned"
+path = "src/bin/download_boot_sectioned.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "hif-startup"
+path = "src/bin/hif_startup.rs"
+test = false
+bench = false
+
+[dependencies]
+aes = { version = "0.8.4", default-features = false }
+critical-section = { version = "1.2", features = ["restore-state-bool"] }
+ccm = { version = "0.5.0", default-features = false }
+tock-registers = "0.10.1"
+zerocopy = { version = "0.8", features = ["derive"] }
+
+[target.'cfg(target_arch = "arm")'.dependencies]
+aarch32-cpu = "0.4.0"
+aarch32-rt = "0.5.0"
+
+[target.'cfg(not(target_arch = "arm"))'.dev-dependencies]
+critical-section = { version = "1.2", features = ["std"] }
+
+[build-dependencies]
+aes = "0.8.4"
+ccm = "0.5.0"
