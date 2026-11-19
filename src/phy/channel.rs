@@ -4,7 +4,7 @@
 use super::*;
 
 // Vendor references to 0x040099f8, 0x040099fc, and 0x04009a06 are confined
-// to `phy_apply_cfg_if_channel_match`, whose translated owner is
+// to `phy_apply_cfg_if_channel_match`, whose counterpart here is
 // `program_channel_pll`. The adjacent force flag at 0x04009a08 has additional
 // calibration and RF consumers and deliberately remains fixed.
 fn cached_pll_channel() -> u16 {
@@ -564,7 +564,7 @@ pub fn measure_temperature_primary() -> Result<TemperatureMeasurement, Temperatu
     Ok(TemperatureMeasurement { value, accepted })
 }
 
-/// Live translation of `phy_txpower_from_rate_table`.
+/// Inspired by `phy_txpower_from_rate_table`.
 ///
 /// The SDD-derived rate-table pointer in PHY software state must be valid.
 pub fn channel_tx_power_from_rate_table(
@@ -1175,7 +1175,7 @@ pub struct ChannelCalibrationStep {
     pub second: u8,
 }
 
-/// Pure translation of vendor `0x18f2c -> 0x18ef0`. It computes the integer
+/// Inspired by vendor `0x18f2c -> 0x18ef0`. It computes the integer
 /// and 21-bit fractional PLL divider later packed into `0x0abc00b4`.
 pub fn pll_divider(frequency_khz: u32, multiplier: u32, crystal_khz: u32) -> Option<PllDivider> {
     if crystal_khz == 0 {

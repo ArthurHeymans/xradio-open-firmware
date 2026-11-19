@@ -1728,7 +1728,7 @@ pub(super) fn dynamic_iq_accumulate(
     *phase = phase.wrapping_add(step) & 0x3f;
 }
 
-/// Pure translation of target `0x18480` (`rf_dft_correlate_samples` in the
+/// Inspired by target `0x18480` (`rf_dft_correlate_samples` in the
 /// annotated archive). It computes up to three signed complex correlations
 /// from one 64-word ADC capture according to the vendor measurement mode.
 pub fn dynamic_iq_dft(

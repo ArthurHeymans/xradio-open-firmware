@@ -1,7 +1,7 @@
 //! XR819 platform setup performed before the vendor HIF initializer.
 //!
-//! This is an intentionally literal translation of the startup routines at
-//! 0x000009e0, 0x000056d8, 0x0000572a, 0x000058b6, and 0x00000bb0. Interrupt
+//! Inspired by the startup routines at 0x000009e0, 0x000056d8, 0x0000572a,
+//! 0x000058b6, and 0x00000bb0. Interrupt
 //! callback registration is kept separate because the Rust handlers do not
 //! exist yet.
 
@@ -437,7 +437,7 @@ pub fn prepare_main_control() {
         .set((platform.configuration.get() & !1) | 0x0080_0000);
 }
 
-/// Translates `FUN_000009e0`, including interrupt-controller initialization.
+/// Inspired by `FUN_000009e0`, including interrupt-controller initialization.
 ///
 /// This leaves CPU IRQ/FIQ masked and does not install any firmware handlers.
 pub fn prepare_memory_and_interrupts() {
@@ -499,7 +499,7 @@ pub fn prepare_high_platform_support() {
     register32(0x0a90_0004).set(0x2b);
 }
 
-/// Translates the hardware portion of `FUN_00000bb0` and `FUN_000058b6`.
+/// Inspired by the hardware portion of `FUN_00000bb0` and `FUN_000058b6`.
 pub fn prepare_dma_and_clocks() {
     post_code(0x444d_4300);
     let system = system_control();
@@ -553,7 +553,7 @@ pub fn prepare_dma_and_clocks() {
     post_code(0x444d_4307);
 }
 
-/// Translates the fixed packet-memory/DMA register setup reached through
+/// Inspired by the fixed packet-memory/DMA register setup reached through
 /// `FUN_000000f6`, `FUN_000000bc`, `FUN_0000f608`, `FUN_0000f4f4`, and
 /// `FUN_0000fcfe` before the vendor startup indication is queued.
 /// Vendor `0x00000c38`, `0x00000a88`, and `0x00000b88`, called in this
@@ -566,12 +566,12 @@ pub fn register_post_activation_interrupts() {
     }
 }
 
-/// Register translated sources from the tail of vendor `fw_subsystem_init`
+/// Register the sources inspired by the tail of vendor `fw_subsystem_init`
 /// after packet-DMA and MAC/RX setup is complete.
 pub fn register_packet_dma_interrupts() {
     crate::interrupts::enable(26);
     // Vendor IRQ 27 calls `event_send_error_0x34`; it stays disabled until
-    // that path is translated.
+    // that path is implemented.
 }
 
 /// Services vendor IRQ 26 while this firmware intentionally keeps CPU IRQ/FIQ

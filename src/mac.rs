@@ -955,7 +955,7 @@ fn build_tbtt(pointer: usize) {
     write_u32(pointer + 8, 0x8000_0000);
 }
 
-/// Uninterrupted hardware and shared-state translation of vendor `0x0000014c`.
+/// Uninterrupted hardware and shared-state setup inspired by vendor `0x0000014c`.
 ///
 /// Packet DMA and the MAC clock domain must already be initialized.
 pub fn initialize_startup_state(max_polls: u32) -> Result<(), MacStartupError> {

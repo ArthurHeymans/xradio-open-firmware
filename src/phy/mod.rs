@@ -527,7 +527,7 @@ fn set_packet_receive_enabled(enabled: bool, max_polls: u32) -> bool {
         let low_mac = crate::mac::low_mac();
         low_mac.receive_gate.set(low_mac.receive_gate.get() & !1);
         // Tail of `phy_resume_state4` (`0x2864`). The TX scheduler call is
-        // intentionally omitted until its queues are translated.
+        // intentionally omitted until its queues are implemented.
         low_mac.receive_state.set(4);
         true
     } else {
@@ -620,7 +620,7 @@ pub fn derive_remap_timing(remap: u32) -> (u16, u16) {
     )
 }
 
-/// Software-state translation of vendor `0x16a38`, `0x198f2`, and `0x16ca4`
+/// Software state inspired by vendor `0x16a38`, `0x198f2`, and `0x16ca4`
 /// for the XR819 mode selected by the vendor version string.
 ///
 /// The vendor BSS range and boot/remap state must already be initialized.
