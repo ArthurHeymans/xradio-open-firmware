@@ -16,7 +16,7 @@ The XR819 is the 2.4 GHz 802.11b/g/n radio on boards such as the Orange Pi Zero.
 
 ## Status
 
-On an Orange Pi Zero with the patched driver, the firmware associates as a WPA2-PSK station, runs as a WPA2 access point, and survives repeated driver unbind and bind. In the November 2026 retest the first association after a rebind needed a retry, and the kernel logged one failed AP start confirmation. These are connectivity tests, not throughput or endurance qualification; the [board test reports](orange-pi-zero-smoke.html) list the exact kernel and firmware revisions. Only SDIO has run on hardware.
+On an Orange Pi Zero with the patched driver, the firmware associates as a WPA2-PSK station, runs as a WPA2 access point, and survives repeated driver unbind and bind, with the SDIO interrupt or a GPIO interrupt. Single-stream TCP runs at about 15 to 26 Mbit/s as a station, and a 10-minute traffic soak logged no errors. One board has been tested, over SDIO only; the [board test reports](orange-pi-zero-smoke.html) list the exact kernel and firmware revisions.
 
 ## About this manual
 

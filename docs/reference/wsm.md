@@ -22,7 +22,7 @@ MIB IDs are a separate namespace, carried inside `READ_MIB_REQ` and `WRITE_MIB_R
 
 ## Payloads
 
-The host driver defines the payloads, in [`wsm.h`](https://github.com/ArthurHeymans/linux/blob/2bd278da55ca/drivers/net/wireless/st/cw1200/wsm.h) and [`wsm.c`](https://github.com/ArthurHeymans/linux/blob/2bd278da55ca/drivers/net/wireless/st/cw1200/wsm.c) of the driver series. This page documents the data-path messages, the configuration request and the startup indication. Offsets count from the start of the message, header included.
+The host driver defines the payloads, in [`wsm.h`](https://github.com/ArthurHeymans/linux/blob/bb557dc24a46/drivers/net/wireless/st/cw1200/wsm.h) and [`wsm.c`](https://github.com/ArthurHeymans/linux/blob/bb557dc24a46/drivers/net/wireless/st/cw1200/wsm.c) of the driver series. This page documents the data-path messages, the configuration request and the startup indication. Offsets count from the start of the message, header included.
 
 | Offset | `TX_REQ` (`0x0004`) field |
 |---|---|
@@ -38,7 +38,7 @@ The host driver defines the payloads, in [`wsm.h`](https://github.com/ArthurHeym
 | `0x18` | The 802.11 frame, or at `0x1a` when flags bit 7 is set |
 {: .compact}
 
-Which message confirms a frame depends on the path it took. Data frames whose subtype carries data (subtype bit 2 clear, so not null-data) take the data path, unless they are unicast EAPOL frames, and are confirmed in `MULTI_TX_CONFIRM`, as many per message as fit, even when there is only one. Everything else, such as management frames, unicast EAPOL, null-data frames and BlockAck requests, takes the single-frame path and is confirmed with `TX_CONFIRM` (`0x0404`), as is a request the firmware rejects. Both confirmations come in two formats. The firmware uses the CW1200 format when the host's accepted `CONFIGURATION_REQ`, below, is padded with at least four bytes after the DPD block, as the driver at `2bd278da55ca` sends it; otherwise it uses the XR819 format, which adds three per-rate words. Before any `CONFIGURATION_REQ` it uses the XR819 format.
+Which message confirms a frame depends on the path it took. Data frames whose subtype carries data (subtype bit 2 clear, so not null-data) take the data path, unless they are unicast EAPOL frames, and are confirmed in `MULTI_TX_CONFIRM`, as many per message as fit, even when there is only one. Everything else, such as management frames, unicast EAPOL, null-data frames and BlockAck requests, takes the single-frame path and is confirmed with `TX_CONFIRM` (`0x0404`), as is a request the firmware rejects. Both confirmations come in two formats. The firmware uses the CW1200 format when the host's accepted `CONFIGURATION_REQ`, below, is padded with at least four bytes after the DPD block, as the driver at `bb557dc24a46` sends it; otherwise it uses the XR819 format, which adds three per-rate words. Before any `CONFIGURATION_REQ` it uses the XR819 format.
 
 | XR819 offset | CW1200 offset | `TX_CONFIRM` field |
 |---|---|---|

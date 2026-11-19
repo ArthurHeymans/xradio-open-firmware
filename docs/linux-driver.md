@@ -2,7 +2,7 @@
 title: Build and install
 description: Build the XR819 bootloader and runtime images and install them for the Linux cw1200 driver.
 ---
-The firmware ships as two images, a bootloader and a runtime. The Linux `cw1200` driver downloads both over SDIO when it probes the chip.
+The firmware ships as two images, a bootloader and a runtime, and a radio configuration file. The Linux `cw1200` driver downloads the images over SDIO when it probes the chip, and passes the configuration file to the runtime.
 
 ## Build the images
 
@@ -12,7 +12,7 @@ Install Rust with [rustup](https://rustup.rs/). The repository pins its nightly 
 cargo xtask image
 ```
 
-This writes `boot_xr819.bin` and `fw_xr819.bin` to `target/images/`. The build is reproducible: a fresh checkout produces byte-identical images. CI also builds both images on every push to `main` and keeps them for 14 days, with their SHA-256 sums, as a workflow artifact named `xr819-<commit>`.
+This writes `boot_xr819.bin`, `fw_xr819.bin` and `sdd_xr819.bin` to `target/images/`. The build is reproducible: a fresh checkout produces byte-identical images. CI also builds them on every push to `main` and keeps them for 14 days, with their SHA-256 sums, as a workflow artifact named `xr819-<commit>`.
 
 ## Prepare the kernel
 
@@ -50,5 +50,5 @@ XR819 open Rust native
 |---|---|
 | The driver reports that `xr819/boot_xr819.bin` or `fw_xr819.bin` is missing | The images are not in the firmware directory under the `xr819/` subdirectory. Copy them there. |
 | The driver reports that `xr819/sdd_xr819.bin` is missing | The configuration file was not installed. Copy it from `target/images/`. |
-| Binding fails with `-EINVAL` after an unbind | The chip still runs the previous firmware and cannot accept a new download. Use a kernel whose XR819 SDIO support resets the card on probe, as the review branch's [`2bd278da55ca`](https://github.com/ArthurHeymans/linux/commit/2bd278da55ca) does. |
+| Binding fails with `-EINVAL` after an unbind | The chip still runs the previous firmware and cannot accept a new download. Use a kernel whose XR819 SDIO support resets the card on probe, as [`9989efc3a837`](https://github.com/ArthurHeymans/linux/commit/9989efc3a837) in the driver series does. |
 | The log does not show `XR819 open Rust native` | First check that the probe and the firmware download succeeded. If they did, the runtime that started is not this one: check that the copied `fw_xr819.bin` is the one from `target/images/`. |
