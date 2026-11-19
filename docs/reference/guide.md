@@ -6,7 +6,7 @@ The reference describes the XR819 from the point of view of the firmware's ARM c
 
 ## Where the facts come from
 
-The firmware began as a translation of the vendor firmware, and most register knowledge comes from that translation, checked on hardware. The manual separates four kinds of statement:
+The manual separates four kinds of statement:
 
 | Kind | Meaning | Marked as |
 |---|---|---|

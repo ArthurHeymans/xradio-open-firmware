@@ -8,7 +8,7 @@ Open firmware for the XRadio XR819 Wi-Fi chip, written in Rust, and a reference 
 The XR819 is the 2.4 GHz 802.11b/g/n radio on boards such as the Orange Pi Zero. A patched version of Linux's `cw1200` driver talks to it over SDIO. This firmware runs on the chip's ARM966E-S core in place of the vendor image: it owns packet memory, queues frames for the MAC, runs CCMP through the AES engine and drives the PHY.
 
 <ul class="cards">
-<li><a href="linux-driver.html"><strong>Build and install</strong><span>Build the two images, use the patched <code>cw1200</code> driver and keep your board's calibration file.</span></a></li>
+<li><a href="linux-driver.html"><strong>Build and install</strong><span>Build the three firmware files and install them for the patched <code>cw1200</code> driver.</span></a></li>
 <li><a href="reference/"><strong>Hardware reference</strong><span>Memory map, register blocks with bit layouts, descriptor formats and host messages.</span></a></li>
 <li><a href="reference/flows.html"><strong>Operation</strong><span>Boot, bring-up, receive, transmit, encryption and sleep, step by step.</span></a></li>
 <li><a href="orange-pi-zero-smoke.html"><strong>Lab notes</strong><span>Board test reports, then measurements and open questions.</span></a></li>

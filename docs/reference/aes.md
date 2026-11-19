@@ -56,10 +56,10 @@ Completion arrives on IRQ 18 or IRQ 20. For a decryption, `AUTH_OK` then reports
 Right after the host handshake the firmware initializes the engine and checks it:
 
 1. Write `COMMAND_STATUS = 0` and wait for `BUSY` to clear.
-2. Stream 430 vendor bytes to `INIT_PORT`, one byte per 32-bit write, with bit 31 set on the first.
+2. Stream the 430 initialization bytes to `INIT_PORT`, one byte per 32-bit write, with bit 31 set on the first.
 3. Write `COMMAND_STATUS = 0x9000` and wait for `BUSY` to clear.
 4. Run a fixed frame through CCMP in HIF output buffer 0 and compare the result with one computed at build time.
 
-The result word is 1 on success, or `0xe0xx` naming the failed step. The format of the 430 bytes, and whether the engine needs them, are unknown; [Vendor initialization data](../init-data.html) records their origin.
+The result word is 1 on success, or `0xe0xx` naming the failed step.
 
 [CCMP encryption](ccmp.html) gives the transfer sequence step by step.

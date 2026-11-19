@@ -25,17 +25,16 @@ The [board test reports](orange-pi-zero-smoke.html) name the kernel revisions th
 
 ## Install the firmware
 
-The driver requests three files from the firmware directory, usually `/lib/firmware/`:
+The driver requests three files from the `xr819/` subdirectory of the firmware directory, usually `/lib/firmware/`. `cargo xtask image` writes all three to `target/images/`:
 
-| File | Source |
+| File | What it is |
 |---|---|
-| `xr819/boot_xr819.bin` | `target/images/boot_xr819.bin` |
-| `xr819/fw_xr819.bin` | `target/images/fw_xr819.bin` |
-| `xr819/sdd_xr819.bin` | Keep the file from the board's original installation |
+| `boot_xr819.bin` | The bootloader, built from this repository |
+| `fw_xr819.bin` | The firmware, built from this repository |
+| `sdd_xr819.bin` | Radio configuration data, copied from [`firmware/sdd_xr819.bin`](https://github.com/ArthurHeymans/xradio-open-firmware/blob/main/firmware/sdd_xr819.bin); the same file the vendor ships for every XR819 board |
 
 1. Back up the existing `xr819/` directory.
-2. Copy the two built images over `boot_xr819.bin` and `fw_xr819.bin`.
-3. Leave `sdd_xr819.bin` in place. It holds the board's calibration data, which the built images do not replace.
+2. Copy the three files into it.
 
 ## Check the result
 
@@ -50,6 +49,6 @@ XR819 open Rust native
 | Symptom | Cause and fix |
 |---|---|
 | The driver reports that `xr819/boot_xr819.bin` or `fw_xr819.bin` is missing | The images are not in the firmware directory under the `xr819/` subdirectory. Copy them there. |
-| The driver reports that `xr819/sdd_xr819.bin` is missing | The calibration file was removed or never installed. Restore it from the backup or the board's original image; it is board-specific and is not built here. |
+| The driver reports that `xr819/sdd_xr819.bin` is missing | The configuration file was not installed. Copy it from `target/images/`. |
 | Binding fails with `-EINVAL` after an unbind | The chip still runs the previous firmware and cannot accept a new download. Use a kernel whose XR819 SDIO support resets the card on probe, as the review branch's [`2bd278da55ca`](https://github.com/ArthurHeymans/linux/commit/2bd278da55ca) does. |
 | The log does not show `XR819 open Rust native` | First check that the probe and the firmware download succeeded. If they did, the runtime that started is not this one: check that the copied `fw_xr819.bin` is the one from `target/images/`. |

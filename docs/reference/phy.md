@@ -16,7 +16,7 @@ The bootloader, not the runtime, initializes the PHY. Before jumping to the runt
 | `0x0ab8_8800` | `0x330` | PHY table `PHY_INIT_AB88800` |
 | `0x0ab8_8c00` | `0x330` | PHY table `PHY_INIT_AB88C00` |
 
-The tables are copied as little-endian words after the register writes. They are not the board's SDD calibration file. [Vendor initialization data](../init-data.html) gives their origin and checksums.
+The tables are copied as little-endian words after the register writes. They are not the SDD file. They live in [`src/init_data.rs`](https://github.com/ArthurHeymans/xradio-open-firmware/blob/main/src/init_data.rs).
 
 ### Register writes
 

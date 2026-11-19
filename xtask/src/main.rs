@@ -72,7 +72,12 @@ fn main() -> Result<()> {
     )?;
     let boot = image::bootstrap(&fs::read(boot)?)?;
     fs::create_dir_all(&out)?;
-    for (name, bytes) in [("boot_xr819.bin", boot), ("fw_xr819.bin", fw)] {
+    let sdd = fs::read(root.join("firmware/sdd_xr819.bin"))?;
+    for (name, bytes) in [
+        ("boot_xr819.bin", boot),
+        ("fw_xr819.bin", fw),
+        ("sdd_xr819.bin", sdd),
+    ] {
         let p = out.join(name);
         fs::write(&p, bytes)?;
         println!("{}", p.display());

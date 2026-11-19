@@ -2,7 +2,7 @@
 title: Vendor cross-reference
 description: Which vendor firmware routine each XR819 firmware step reproduces, for checking the reference against the vendor image.
 ---
-The firmware began as a translation of the vendor runtime. This page maps the manual's steps and registers to vendor code, for anyone checking a claim against the vendor image. Addresses are offsets in that image. Names such as `mac_irq_handler` are annotations from the reverse engineering, not vendor symbols; `FUN_` names were never given one.
+This page maps the manual's steps and registers to vendor code, for anyone checking a claim against the vendor image. Addresses are offsets in that image. Names such as `mac_irq_handler` are annotations from the reverse engineering, not vendor symbols; `FUN_` names were never given one.
 
 ## Start-up
 

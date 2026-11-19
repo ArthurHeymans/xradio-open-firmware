@@ -1,4 +1,5 @@
-//! XR819 initialization values. Source offsets and SHA-256: docs/init-data.md.
+//! XR819 initialization data: the AES engine start-up stream and the PHY
+//! tables the bootloader copies.
 
 #[rustfmt::skip]
 pub(crate) const ENGINE_MODE1_INIT: [u8; 430] = [
