@@ -14,7 +14,9 @@ const MAGIC: u32 = 0x4857_434b;
 const SCRATCH_LEN: usize = 26 + CCMP_HEADER_LEN + 1506 + CCMP_MIC_LEN;
 
 fn checksum(bytes: &[u8]) -> u32 {
-    bytes.iter().fold(0_u32, |value, byte| value.rotate_left(5).wrapping_add(u32::from(*byte)))
+    bytes.iter().fold(0_u32, |value, byte| {
+        value.rotate_left(5).wrapping_add(u32::from(*byte))
+    })
 }
 
 /// Run `frame` through the engine and wait, recording the trace points.
@@ -54,7 +56,10 @@ impl Crypto {
         // SAFETY: the caller guarantees exclusive use of HIF output buffer 0,
         // which is at least SCRATCH_LEN octets of packet RAM.
         let scratch = unsafe {
-            core::slice::from_raw_parts_mut(crate::packet_ram::hif_output(0) as *mut u8, SCRATCH_LEN)
+            core::slice::from_raw_parts_mut(
+                crate::packet_ram::hif_output(0) as *mut u8,
+                SCRATCH_LEN,
+            )
         };
         let mut record = [0_u32; 22];
         record[0] = MAGIC;
@@ -94,7 +99,9 @@ impl Crypto {
             (Err(CcmpError::HardwareTimeout), _) => return 0xe001,
             (Err(CcmpError::MalformedFrame), _) => return 0xe004,
             (_, Some(index)) => {
-                record[5] = ((index as u32) << 16) | (u32::from(HARDWARE_KAT_EXPECTED[index]) << 8) | u32::from(frame[index]);
+                record[5] = ((index as u32) << 16)
+                    | (u32::from(HARDWARE_KAT_EXPECTED[index]) << 8)
+                    | u32::from(frame[index]);
                 return 0xe003;
             }
             (Err(CcmpError::Authentication), None) => return 2,
@@ -121,7 +128,11 @@ impl Crypto {
                 record[5] = HARDWARE_KAT_MATRIX_CHECKSUMS[case];
                 record[6] = actual;
                 record[20] = payload_length as u32;
-                return if operation == Err(CcmpError::MalformedFrame) { 0xe004 } else { 0xe006 };
+                return if operation == Err(CcmpError::MalformedFrame) {
+                    0xe004
+                } else {
+                    0xe006
+                };
             }
             record[19] = (case + 1) as u32;
         }
@@ -131,7 +142,8 @@ impl Crypto {
         frame.copy_from_slice(&HARDWARE_KAT_EXPECTED);
         let operation = run(engine, record, frame, true);
         record[2] |= engine.irqs();
-        let plaintext = header_length(u16::from_le_bytes([frame[0], frame[1]])) + CCMP_HEADER_LEN..frame.len() - CCMP_MIC_LEN;
+        let plaintext = header_length(u16::from_le_bytes([frame[0], frame[1]])) + CCMP_HEADER_LEN
+            ..frame.len() - CCMP_MIC_LEN;
         if operation.is_err() || frame[plaintext.clone()] != HARDWARE_KAT_INPUT[plaintext] {
             record[20] = 1;
             return 0xe007;

@@ -26,7 +26,10 @@ struct Template<const N: usize> {
 
 impl<const N: usize> Template<N> {
     const fn new() -> Self {
-        Self { len: 0, mib: [0; N] }
+        Self {
+            len: 0,
+            mib: [0; N],
+        }
     }
 
     fn get(&self) -> Option<&[u8]> {
@@ -163,15 +166,27 @@ pub struct ThresholdTable {
 pub const SDD_THRESHOLD_RECORDS: usize = 16;
 
 impl ThresholdTable {
-    const ZERO: Self = Self { present: false, default: 0, records: [(0, 0); SDD_THRESHOLD_RECORDS], count: 0 };
+    const ZERO: Self = Self {
+        present: false,
+        default: 0,
+        records: [(0, 0); SDD_THRESHOLD_RECORDS],
+        count: 0,
+    };
 
     fn parse(element: &[u8]) -> Option<Self> {
         if element.len() < 2 || (element.len() - 2) % 4 != 0 {
             return None;
         }
-        let mut table = Self { present: true, default: i16::from_le_bytes([element[0], element[1]]), ..Self::ZERO };
+        let mut table = Self {
+            present: true,
+            default: i16::from_le_bytes([element[0], element[1]]),
+            ..Self::ZERO
+        };
         for (slot, record) in table.records.iter_mut().zip(element[2..].chunks_exact(4)) {
-            *slot = (u16::from_le_bytes([record[0], record[1]]), i16::from_le_bytes([record[2], record[3]]));
+            *slot = (
+                u16::from_le_bytes([record[0], record[1]]),
+                i16::from_le_bytes([record[2], record[3]]),
+            );
             table.count += 1;
         }
         Some(table)
@@ -201,7 +216,9 @@ impl SddCalibration {
     /// `0x19dd0`: the last correction of element `0x30` or `0x31` whose
     /// threshold is not greater than the channel.
     pub fn channel_threshold_correction(&self, element_id: u8, channel: u16) -> Option<i16> {
-        let table = self.thresholds.get(usize::from(element_id.checked_sub(0x30)?))?;
+        let table = self
+            .thresholds
+            .get(usize::from(element_id.checked_sub(0x30)?))?;
         table.present.then(|| {
             table.records[..usize::from(table.count)]
                 .iter()
@@ -213,13 +230,21 @@ impl SddCalibration {
 
     /// Vendor `0x1a112`: the profile-0 channel record (element `0xec`) for
     /// `channel`, as offsets from `base`.
-    pub fn channel_calibration_values(&self, channel: u8, base: i16) -> Option<ChannelCalibrationValues> {
+    pub fn channel_calibration_values(
+        &self,
+        channel: u8,
+        base: i16,
+    ) -> Option<ChannelCalibrationValues> {
         let profile = &self.profiles[0];
         let records = &profile.channel_records[..usize::from(profile.channel_count)];
         let mut selected = records.first()?;
         for (index, record) in records.iter().enumerate() {
             if channel <= record[0] {
-                selected = if channel < record[0] && index != 0 { &records[index - 1] } else { record };
+                selected = if channel < record[0] && index != 0 {
+                    &records[index - 1]
+                } else {
+                    record
+                };
                 break;
             }
         }
@@ -232,14 +257,19 @@ impl SddCalibration {
     pub fn mode0_channel_calibration(&self, channel: u8) -> Option<Mode0ChannelCalibration> {
         let base = self.channel_threshold_correction(0x30, u16::from(channel))?;
         let values = self.channel_calibration_values(channel, base)?;
-        Some(Mode0ChannelCalibration { base, first: values.first, second: values.second })
+        Some(Mode0ChannelCalibration {
+            base,
+            first: values.first,
+            second: values.second,
+        })
     }
 
     /// Apply the calibration elements present in `sdd` on top of `self`.
     pub fn apply(&mut self, sdd: &[u8]) {
         let element = |id| sdd_element(sdd, id);
         fn halfwords(data: &[u8]) -> impl Iterator<Item = i16> + '_ {
-            data.chunks_exact(2).map(|pair| i16::from_le_bytes([pair[0], pair[1]]))
+            data.chunks_exact(2)
+                .map(|pair| i16::from_le_bytes([pair[0], pair[1]]))
         }
         // Single values and pairs need the whole element; per-rate tables copy
         // as many entries as the element holds.
@@ -248,18 +278,26 @@ impl SddCalibration {
             if destination.len() <= 2 && data.len() < 2 * destination.len() {
                 return;
             }
-            destination.iter_mut().zip(halfwords(data)).for_each(|(slot, value)| *slot = value);
+            destination
+                .iter_mut()
+                .zip(halfwords(data))
+                .for_each(|(slot, value)| *slot = value);
         };
-        for (profile, [limits, agc, rssi, temperature, conversion, scales]) in
-            [[0xe3, 0xe0, 0x40, 0x42, 0x46, 0x48], [0xe4, 0xe1, 0x41, 0x43, 0x47, 0x49]]
-                .into_iter()
-                .enumerate()
+        for (profile, [limits, agc, rssi, temperature, conversion, scales]) in [
+            [0xe3, 0xe0, 0x40, 0x42, 0x46, 0x48],
+            [0xe4, 0xe1, 0x41, 0x43, 0x47, 0x49],
+        ]
+        .into_iter()
+        .enumerate()
         {
             let bank = &mut self.profiles[profile];
             copy(limits, &mut bank.rate_limits);
             copy(agc, core::slice::from_mut(&mut bank.agc_correction));
             copy(rssi, &mut bank.rssi_coefficients);
-            copy(temperature, core::slice::from_mut(&mut bank.temperature_coefficient));
+            copy(
+                temperature,
+                core::slice::from_mut(&mut bank.temperature_coefficient),
+            );
             copy(conversion, &mut bank.conversion);
             copy(scales, &mut bank.rssi_rate_scales);
         }
@@ -271,14 +309,22 @@ impl SddCalibration {
         // Channel records: a 16-bit count, then three-byte records for
         // profile 0 (0xec) and two-byte records for profile 1 (0xed).
         for (profile, id, width) in [(0, 0xec, 3), (1, 0xed, 2)] {
-            let Some(data) = element(id).filter(|data| data.len() >= 2) else { continue };
+            let Some(data) = element(id).filter(|data| data.len() >= 2) else {
+                continue;
+            };
             let count = usize::from(u16::from_le_bytes([data[0], data[1]]));
-            let Some(records) = data.get(2..2 + count * width) else { continue };
+            let Some(records) = data.get(2..2 + count * width) else {
+                continue;
+            };
             if count > usize::from(u8::MAX) {
                 continue;
             }
             let bank = &mut self.profiles[profile];
-            for (slot, record) in bank.channel_records.iter_mut().zip(records.chunks_exact(width)) {
+            for (slot, record) in bank
+                .channel_records
+                .iter_mut()
+                .zip(records.chunks_exact(width))
+            {
                 slot[..width].copy_from_slice(record);
             }
             bank.channel_count = count.min(SDD_CHANNEL_RECORDS) as u8;
@@ -375,8 +421,14 @@ impl Configuration {
         self.max_rx_lifetime = request.max_rx_lifetime;
         // cw1200 leaves this field zero. Do not enable RTS implicitly while
         // protected aggregates are unsupported (vendor substitutes 300 here).
-        let threshold = if request.rts_threshold == 0 { u32::MAX } else { request.rts_threshold };
-        self.protection.iter_mut().for_each(|policy| policy.rts_threshold = threshold);
+        let threshold = if request.rts_threshold == 0 {
+            u32::MAX
+        } else {
+            request.rts_threshold
+        };
+        self.protection
+            .iter_mut()
+            .for_each(|policy| policy.rts_threshold = threshold);
         self.dpd_version = request.dpd_version;
         self.station_id = request.station_id;
         self.dpd_flags = request.dpd_flags;
@@ -432,7 +484,9 @@ impl Configuration {
     pub fn update_template_elements(&mut self, what: u16, count: u16, elements: &[u8]) -> bool {
         let mut rest = elements;
         (0..count).all(|_| {
-            let Some((element, tail)) = rest.get(1).and_then(|&length| rest.split_at_checked(2 + usize::from(length)))
+            let Some((element, tail)) = rest
+                .get(1)
+                .and_then(|&length| rest.split_at_checked(2 + usize::from(length)))
             else {
                 return false;
             };
@@ -449,7 +503,11 @@ impl Configuration {
     /// copies it, including when that consumer reports failure. Clearing
     /// the retained bit would forget queued traffic at the next DTIM.
     /// Return the consumer's result and whether this beacon announces group traffic.
-    pub fn with_beacon<R>(&mut self, number: u64, consume: impl FnOnce(&[u8]) -> R) -> Option<(R, bool)> {
+    pub fn with_beacon<R>(
+        &mut self,
+        number: u64,
+        consume: impl FnOnce(&[u8]) -> R,
+    ) -> Option<(R, bool)> {
         let beacon = &mut self.beacon;
         let mut multicast = false;
         let mut restore_control = None;
@@ -510,7 +568,8 @@ impl Configuration {
     }
 
     pub fn current_tx_power_tenths_dbm(&self) -> Option<i32> {
-        (self.current_tx_power_encoded != 0).then_some((self.current_tx_power_encoded ^ 0x8000_0000) as i32)
+        (self.current_tx_power_encoded != 0)
+            .then_some((self.current_tx_power_encoded ^ 0x8000_0000) as i32)
     }
 
     pub fn tx_protection(&self) -> [crate::tx::ProtectionPolicy; 2] {
@@ -519,7 +578,9 @@ impl Configuration {
 
     /// Protection MIBs are VIF-local, unlike the shared calibration/configuration.
     pub fn retain_protection_mib(&mut self, interface: u8, mib_id: u16, data: &[u8]) -> bool {
-        let Some(policy) = self.protection.get_mut(usize::from(interface)) else { return false };
+        let Some(policy) = self.protection.get_mut(usize::from(interface)) else {
+            return false;
+        };
         match (mib_id, data) {
             (crate::tx::MIB_RTS_THRESHOLD, [a, b, c, d]) => {
                 // cw1200_set_rts_threshold encodes disabled as zero.
@@ -607,7 +668,11 @@ fn tx_power_profile_maximum(sdd: &[u8], element_id: u8) -> Option<i32> {
 
 fn tx_power_ranges(sdd: &[u8]) -> Option<[TxPowerRange; 2]> {
     let range = |element| {
-        Some(TxPowerRange { min_power_level: -160, max_power_level: tx_power_profile_maximum(sdd, element)?, stepping: 0 })
+        Some(TxPowerRange {
+            min_power_level: -160,
+            max_power_level: tx_power_profile_maximum(sdd, element)?,
+            stepping: 0,
+        })
     };
     Some([range(0xe3)?, range(0xe4)?])
 }
@@ -647,12 +712,27 @@ mod tests {
         mib[40..40 + elements.len()].copy_from_slice(&elements);
         assert!(configuration.retain_interface_mib(crate::wsm::MIB_ID_TEMPLATE_FRAME, &mib[..53]));
         // A longer TIM (one more bitmap octet, multicast bit) and a new ERP.
-        assert!(configuration.update_template_elements(1, 2, &[5, 5, 0, 3, 1, 0, 2, 42, 1, 0, 0, 0]));
+        assert!(configuration.update_template_elements(
+            1,
+            2,
+            &[5, 5, 0, 3, 1, 0, 2, 42, 1, 0, 0, 0]
+        ));
         let beacon = configuration.template(TEMPLATE_BEACON).unwrap();
         assert_eq!(beacon[2..4], 53_u16.to_le_bytes());
-        assert_eq!(beacon[40..], [0, 2, b'a', b'b', 5, 5, 0, 3, 1, 0, 2, 3, 1, 11, 42, 1, 0]);
+        assert_eq!(
+            beacon[40..],
+            [0, 2, b'a', b'b', 5, 5, 0, 3, 1, 0, 2, 3, 1, 11, 42, 1, 0]
+        );
         let beacons = [3, 4, 5, 6].map(|number| configuration.with_beacon(number, |mib| mib[46]));
-        assert_eq!(beacons, [Some((0, true)), Some((2, false)), Some((1, false)), Some((0, true))]);
+        assert_eq!(
+            beacons,
+            [
+                Some((0, true)),
+                Some((2, false)),
+                Some((1, false)),
+                Some((0, true))
+            ]
+        );
         // Truncated elements change nothing.
         assert!(!configuration.update_template_elements(1, 1, &[5, 5, 0]));
         // No probe-response template: nothing to update.
@@ -668,11 +748,19 @@ mod tests {
         mib[40..46].copy_from_slice(&[5, 4, 0, 3, 0xa7, 0x12]);
         assert!(configuration.retain_interface_mib(crate::wsm::MIB_ID_TEMPLATE_FRAME, &mib[..46]));
         let beacons = [3, 4, 5, 6].map(|number| {
-            configuration.with_beacon(number, |mib| (mib[42], mib[44]))
+            configuration
+                .with_beacon(number, |mib| (mib[42], mib[44]))
                 .map(|((count, control), multicast)| (count, control, multicast))
         });
-        assert_eq!(beacons, [Some((0, 0xa7, true)), Some((2, 0xa6, false)),
-                             Some((1, 0xa6, false)), Some((0, 0xa7, true))]);
+        assert_eq!(
+            beacons,
+            [
+                Some((0, 0xa7, true)),
+                Some((2, 0xa6, false)),
+                Some((1, 0xa6, false)),
+                Some((0, 0xa7, true))
+            ]
+        );
         // Formatting a non-DTIM must not forget the host's queued-group request.
         assert_eq!(configuration.template(TEMPLATE_BEACON).unwrap()[44], 0xa7);
     }
@@ -684,35 +772,61 @@ mod tests {
         mib[40..46].copy_from_slice(&[5, 4, 0, 3, 0xa7, 0x12]);
         assert!(configuration.retain_interface_mib(crate::wsm::MIB_ID_TEMPLATE_FRAME, &mib[..46]));
         // A failed/non-DTIM publication cannot consume the pending-group request.
-        assert_eq!(configuration.with_beacon(4, |mib| {
-            assert_eq!(mib[44], 0xa6);
-            assert_eq!(mib[45], 0x12);
-            false
-        }), Some((false, false)));
+        assert_eq!(
+            configuration.with_beacon(4, |mib| {
+                assert_eq!(mib[44], 0xa6);
+                assert_eq!(mib[45], 0x12);
+                false
+            }),
+            Some((false, false))
+        );
         assert_eq!(configuration.template(TEMPLATE_BEACON).unwrap()[44], 0xa7);
-        assert_eq!(configuration.with_beacon(6, |mib| mib[44]), Some((0xa7, true)));
+        assert_eq!(
+            configuration.with_beacon(6, |mib| mib[44]),
+            Some((0xa7, true))
+        );
         // An unrelated element update must not lose that request either.
         assert!(configuration.update_template_elements(1, 1, &[3, 1, 6]));
-        assert_eq!(configuration.with_beacon(7, |mib| mib[44]), Some((0xa6, false)));
-        assert_eq!(configuration.with_beacon(9, |mib| mib[44]), Some((0xa7, true)));
+        assert_eq!(
+            configuration.with_beacon(7, |mib| mib[44]),
+            Some((0xa6, false))
+        );
+        assert_eq!(
+            configuration.with_beacon(9, |mib| mib[44]),
+            Some((0xa7, true))
+        );
         // The host, not beacon formatting, clears the pending request.
         assert!(configuration.update_template_elements(1, 1, &[5, 4, 0, 3, 0xa6, 0x12]));
-        assert_eq!(configuration.with_beacon(12, |mib| mib[44]), Some((0xa6, false)));
+        assert_eq!(
+            configuration.with_beacon(12, |mib| mib[44]),
+            Some((0xa6, false))
+        );
         // A new full template may request group traffic again.
         assert!(configuration.retain_interface_mib(crate::wsm::MIB_ID_TEMPLATE_FRAME, &mib[..46]));
-        assert_eq!(configuration.with_beacon(13, |mib| mib[44]), Some((0xa6, false)));
-        assert_eq!(configuration.with_beacon(15, |mib| mib[44]), Some((0xa7, true)));
+        assert_eq!(
+            configuration.with_beacon(13, |mib| mib[44]),
+            Some((0xa6, false))
+        );
+        assert_eq!(
+            configuration.with_beacon(15, |mib| mib[44]),
+            Some((0xa7, true))
+        );
     }
 
     #[test]
     fn beacon_without_a_complete_tim_is_not_patched() {
         let mut configuration = Configuration::new();
-        assert_eq!(configuration.with_beacon(0, |_| panic!("no beacon")), None::<((), bool)>);
+        assert_eq!(
+            configuration.with_beacon(0, |_| panic!("no beacon")),
+            None::<((), bool)>
+        );
         for elements in [&[][..], &[5, 1, 0xff][..]] {
             let mut mib = template_mib(TEMPLATE_BEACON, 36 + elements.len());
             let len = 40 + elements.len();
             mib[40..len].copy_from_slice(elements);
-            assert!(configuration.retain_interface_mib(crate::wsm::MIB_ID_TEMPLATE_FRAME, &mib[..len]));
+            assert!(
+                configuration.retain_interface_mib(crate::wsm::MIB_ID_TEMPLATE_FRAME, &mib[..len])
+            );
             let result = configuration.with_beacon(0, |beacon| {
                 assert_eq!(beacon, &mib[..len]);
             });
@@ -729,11 +843,17 @@ mod tests {
         for mib in [&probe[..34], &beacon[..44], &null[..28]] {
             assert!(configuration.retain_interface_mib(crate::wsm::MIB_ID_TEMPLATE_FRAME, mib));
         }
-        assert_eq!(configuration.template(TEMPLATE_PROBE_REQUEST), Some(&probe[..34]));
+        assert_eq!(
+            configuration.template(TEMPLATE_PROBE_REQUEST),
+            Some(&probe[..34])
+        );
         assert_eq!(configuration.template(TEMPLATE_BEACON), Some(&beacon[..44]));
         assert_eq!(configuration.template(TEMPLATE_PROBE_RESPONSE), None);
         // The declared length must match; a beacon needs its fixed fields.
-        for mib in [&beacon[..43], &template_mib(TEMPLATE_PROBE_RESPONSE, 30)[..34]] {
+        for mib in [
+            &beacon[..43],
+            &template_mib(TEMPLATE_PROBE_RESPONSE, 30)[..34],
+        ] {
             assert!(!configuration.retain_interface_mib(crate::wsm::MIB_ID_TEMPLATE_FRAME, mib));
         }
     }
@@ -757,7 +877,10 @@ mod tests {
         assert_eq!(calibration.profiles[1].temperature_coefficient, 9);
         assert_eq!(calibration.gain_coefficients, [0, 0x1234, 0, 0]);
         assert_eq!(calibration.profiles[0].channel_count, 2);
-        assert_eq!(calibration.profiles[0].channel_records[..2], [[1, 2, 3], [11, 12, 13]]);
+        assert_eq!(
+            calibration.profiles[0].channel_records[..2],
+            [[1, 2, 3], [11, 12, 13]]
+        );
         assert_eq!(calibration.profiles[1].channel_count, 1);
         assert_eq!(calibration.profiles[1].channel_records[0], [36, 5, 0]);
     }
@@ -768,7 +891,13 @@ mod tests {
         let mut configuration = Configuration::new();
         assert!(configuration.retain_protection_mib(1, MIB_RTS_THRESHOLD, &300_u32.to_le_bytes()));
         assert!(configuration.retain_protection_mib(1, MIB_NON_ERP_PROTECTION, &[1, 0, 0, 0]));
-        let expected = [ProtectionPolicy::DISABLED, ProtectionPolicy { rts_threshold: 300, non_erp: true }];
+        let expected = [
+            ProtectionPolicy::DISABLED,
+            ProtectionPolicy {
+                rts_threshold: 300,
+                non_erp: true,
+            },
+        ];
         assert_eq!(configuration.tx_protection(), expected);
         assert!(!configuration.retain_protection_mib(2, MIB_RTS_THRESHOLD, &[0; 4]));
         assert!(!configuration.retain_protection_mib(1, MIB_RTS_THRESHOLD, &[0; 3]));
@@ -797,8 +926,18 @@ mod tests {
         assert_eq!(configuration.station_id(), None);
         configuration.retain(&request).unwrap();
         assert_eq!(configuration.tx_protection()[0].rts_threshold, 3);
-        configuration.retain(&ConfigurationRequest { rts_threshold: 0, ..request }).unwrap();
-        assert_eq!(configuration.tx_protection().map(|policy| policy.rts_threshold), [u32::MAX; 2]);
+        configuration
+            .retain(&ConfigurationRequest {
+                rts_threshold: 0,
+                ..request
+            })
+            .unwrap();
+        assert_eq!(
+            configuration
+                .tx_protection()
+                .map(|policy| policy.rts_threshold),
+            [u32::MAX; 2]
+        );
         assert_eq!(configuration.station_id(), Some(request.station_id));
         assert_eq!(sdd_element(request.dpd_data, 0xc5), Some(&[0xc0, 0x5d][..]));
         assert_eq!(sdd_element(request.dpd_data, 0xeb), None);
@@ -811,11 +950,18 @@ mod tests {
         assert_eq!(calibration.channel_threshold_correction(0x31, 6), None);
         assert_eq!(
             calibration.channel_calibration_values(6, 100),
-            Some(ChannelCalibrationValues { first: 108, second: 116 })
+            Some(ChannelCalibrationValues {
+                first: 108,
+                second: 116
+            })
         );
         assert_eq!(
             calibration.mode0_channel_calibration(6),
-            Some(Mode0ChannelCalibration { base: 10, first: 18, second: 26 })
+            Some(Mode0ChannelCalibration {
+                base: 10,
+                first: 18,
+                second: 26
+            })
         );
 
         let mut power_sdd = [0_u8; 56];
@@ -825,12 +971,25 @@ mod tests {
         power_sdd[28] = 0xe4;
         power_sdd[29] = 26;
         power_sdd[50..52].copy_from_slice(&212_u16.to_le_bytes());
-        configuration.retain(&ConfigurationRequest { dpd_data: &power_sdd, ..request }).unwrap();
+        configuration
+            .retain(&ConfigurationRequest {
+                dpd_data: &power_sdd,
+                ..request
+            })
+            .unwrap();
         assert_eq!(
             configuration.tx_power_ranges(),
             Some([
-                TxPowerRange { min_power_level: -160, max_power_level: 272, stepping: 0 },
-                TxPowerRange { min_power_level: -160, max_power_level: 212, stepping: 0 },
+                TxPowerRange {
+                    min_power_level: -160,
+                    max_power_level: 272,
+                    stepping: 0
+                },
+                TxPowerRange {
+                    min_power_level: -160,
+                    max_power_level: 212,
+                    stepping: 0
+                },
             ])
         );
     }
@@ -838,15 +997,40 @@ mod tests {
     #[test]
     fn retains_interface_mibs() {
         let mut configuration = Configuration::new();
-        assert!(configuration.retain_interface_mib(crate::wsm::MIB_ID_DOT11_CURRENT_TX_POWER_LEVEL, &(-135_i32).to_le_bytes()));
+        assert!(configuration.retain_interface_mib(
+            crate::wsm::MIB_ID_DOT11_CURRENT_TX_POWER_LEVEL,
+            &(-135_i32).to_le_bytes()
+        ));
         assert_eq!(configuration.current_tx_power_tenths_dbm(), Some(-135));
-        assert!(configuration.retain_interface_mib(crate::wsm::MIB_ID_BLOCK_ACK_POLICY, &[0x3f, 0, 0x0f, 0]));
-        assert_eq!((configuration.block_ack_tx_tids(), configuration.block_ack_rx_tids()), (0x3f, 0x0f));
-        assert!(!configuration.retain_interface_mib(crate::wsm::MIB_ID_BLOCK_ACK_POLICY, &[0x3f, 1, 0x0f, 0]));
-        assert!(configuration.retain_interface_mib(crate::wsm::MIB_ID_SET_ASSOCIATION_MODE, &[0x1f, 1, 0, 4, 7, 0, 0, 0]));
+        assert!(
+            configuration
+                .retain_interface_mib(crate::wsm::MIB_ID_BLOCK_ACK_POLICY, &[0x3f, 0, 0x0f, 0])
+        );
+        assert_eq!(
+            (
+                configuration.block_ack_tx_tids(),
+                configuration.block_ack_rx_tids()
+            ),
+            (0x3f, 0x0f)
+        );
+        assert!(
+            !configuration
+                .retain_interface_mib(crate::wsm::MIB_ID_BLOCK_ACK_POLICY, &[0x3f, 1, 0x0f, 0])
+        );
+        assert!(configuration.retain_interface_mib(
+            crate::wsm::MIB_ID_SET_ASSOCIATION_MODE,
+            &[0x1f, 1, 0, 4, 7, 0, 0, 0]
+        ));
         assert_eq!(configuration.mpdu_start_spacing(), 4);
-        assert!(!configuration.retain_interface_mib(crate::wsm::MIB_ID_SET_ASSOCIATION_MODE, &[0x1f, 1, 0, 8, 7, 0, 0, 0]));
-        assert!(configuration.retain_interface_mib(crate::wsm::MIB_ID_PRIVATE_TX_BA_SESSION, &[3, 1]));
-        assert!(configuration.retain_interface_mib(crate::wsm::MIB_ID_PRIVATE_TX_BA_SESSION, &[3, 0]));
+        assert!(!configuration.retain_interface_mib(
+            crate::wsm::MIB_ID_SET_ASSOCIATION_MODE,
+            &[0x1f, 1, 0, 8, 7, 0, 0, 0]
+        ));
+        assert!(
+            configuration.retain_interface_mib(crate::wsm::MIB_ID_PRIVATE_TX_BA_SESSION, &[3, 1])
+        );
+        assert!(
+            configuration.retain_interface_mib(crate::wsm::MIB_ID_PRIVATE_TX_BA_SESSION, &[3, 0])
+        );
     }
 }

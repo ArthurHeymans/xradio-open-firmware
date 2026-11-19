@@ -222,7 +222,10 @@ mod tests {
         let policy = policies.get(2).unwrap();
         let mut rate = 17;
         for (failed_retries, next) in [17, 17, 17, 17, 16, 16].into_iter().enumerate() {
-            assert_eq!(retry_step(policy, rate, failed_retries as u16, false), RetryStep::Rearm { rate: next });
+            assert_eq!(
+                retry_step(policy, rate, failed_retries as u16, false),
+                RetryStep::Rearm { rate: next }
+            );
             rate = next;
         }
         assert_eq!(retry_step(policy, rate, 6, false), RetryStep::GiveUp);

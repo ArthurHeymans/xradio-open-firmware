@@ -58,12 +58,16 @@ pub(crate) fn finalize_phy_control(phy: PhyRateWords, rate_index: u8, frame_leng
     }
 }
 
-pub(crate) fn single_frame_secondary_command(tx_flags: u32, header_duration: u16, duration_slot: u8) -> u32 {
+pub(crate) fn single_frame_secondary_command(
+    tx_flags: u32,
+    header_duration: u16,
+    duration_slot: u8,
+) -> u32 {
     if tx_flags & 1 == 0 {
         0x2100_0000
-            | packet_ram::encode_mac_packet_offset_u32(
-                packet_ram::duration_word(usize::from(duration_slot)) as u32,
-            )
+            | packet_ram::encode_mac_packet_offset_u32(packet_ram::duration_word(usize::from(
+                duration_slot,
+            )) as u32)
     } else {
         0x3200_0000 | header_duration as u32
     }
@@ -137,19 +141,37 @@ pub(crate) struct Dot11FixedHeaderLayout {
 pub(crate) struct TxFrameAddress(pub(crate) u32);
 
 impl TxFrameAddress {
-    pub(crate) const fn new(address: u32) -> Self { Self(address) }
-    pub(crate) const fn raw(self) -> u32 { self.0 }
-    pub(crate) const fn field(self, offset: usize) -> u32 { self.0.wrapping_add(offset as u32) }
-    pub(crate) const fn frame_control(self) -> u32 { self.field(core::mem::offset_of!(Dot11FixedHeaderLayout, frame_control)) }
-    pub(crate) const fn address_1(self) -> u32 { self.field(core::mem::offset_of!(Dot11FixedHeaderLayout, address_1)) }
+    pub(crate) const fn new(address: u32) -> Self {
+        Self(address)
+    }
+    pub(crate) const fn raw(self) -> u32 {
+        self.0
+    }
+    pub(crate) const fn field(self, offset: usize) -> u32 {
+        self.0.wrapping_add(offset as u32)
+    }
+    pub(crate) const fn frame_control(self) -> u32 {
+        self.field(core::mem::offset_of!(Dot11FixedHeaderLayout, frame_control))
+    }
+    pub(crate) const fn address_1(self) -> u32 {
+        self.field(core::mem::offset_of!(Dot11FixedHeaderLayout, address_1))
+    }
     pub(crate) const fn address_2_byte_unchecked(self, byte: u32) -> u32 {
-        self.field(core::mem::offset_of!(Dot11FixedHeaderLayout, address_2)).wrapping_add(byte)
+        self.field(core::mem::offset_of!(Dot11FixedHeaderLayout, address_2))
+            .wrapping_add(byte)
     }
     pub(crate) const fn address_2_halfword_unchecked(self, word: u32) -> u32 {
         self.address_2_byte_unchecked(word * 2)
     }
-    pub(crate) const fn sequence_control(self) -> u32 { self.field(core::mem::offset_of!(Dot11FixedHeaderLayout, sequence_control)) }
-    pub(crate) const fn descriptor_tail(self) -> u32 { self.address_1() }
+    pub(crate) const fn sequence_control(self) -> u32 {
+        self.field(core::mem::offset_of!(
+            Dot11FixedHeaderLayout,
+            sequence_control
+        ))
+    }
+    pub(crate) const fn descriptor_tail(self) -> u32 {
+        self.address_1()
+    }
 }
 
 /// A compressed BlockAckReq is a 20-octet control frame, so the 24-octet data
@@ -176,7 +198,11 @@ pub(crate) struct Dot11HeaderShape {
 pub(crate) fn classify_dot11_header(frame_control: u16, legacy_eapol: bool) -> Dot11HeaderShape {
     let four_address = frame_control & 0x0300 == 0x0300;
     let qos_data = !legacy_eapol && frame_control & 0x008f == 0x0088;
-    let base = if four_address { 30 } else { u32::from(DOT11_FIXED_HEADER_LENGTH) };
+    let base = if four_address {
+        30
+    } else {
+        u32::from(DOT11_FIXED_HEADER_LENGTH)
+    };
     let qos_extension = if qos_data {
         if frame_control & 0x8000 != 0 { 6 } else { 2 }
     } else {
@@ -200,18 +226,27 @@ pub(crate) struct TxDescriptorLayout {
 pub(crate) struct TxDescriptorAddress(pub(crate) u32);
 
 impl TxDescriptorAddress {
-    pub(crate) const fn new(address: u32) -> Self { Self(address) }
-    pub(crate) const fn raw(self) -> u32 { self.0 }
+    pub(crate) const fn new(address: u32) -> Self {
+        Self(address)
+    }
+    pub(crate) const fn raw(self) -> u32 {
+        self.0
+    }
     pub(crate) const fn command(self) -> u32 {
-        self.0.wrapping_add(core::mem::offset_of!(TxDescriptorLayout, command) as u32)
+        self.0
+            .wrapping_add(core::mem::offset_of!(TxDescriptorLayout, command) as u32)
     }
     pub(crate) const fn flags(self) -> u32 {
-        self.0.wrapping_add(core::mem::offset_of!(TxDescriptorLayout, flags) as u32)
+        self.0
+            .wrapping_add(core::mem::offset_of!(TxDescriptorLayout, flags) as u32)
     }
     pub(crate) const fn duration(self) -> u32 {
-        self.0.wrapping_add(core::mem::offset_of!(TxDescriptorLayout, duration) as u32)
+        self.0
+            .wrapping_add(core::mem::offset_of!(TxDescriptorLayout, duration) as u32)
     }
-    pub(crate) const fn word_unchecked(self, index: u32) -> u32 { self.0.wrapping_add(index * 4) }
+    pub(crate) const fn word_unchecked(self, index: u32) -> u32 {
+        self.0.wrapping_add(index * 4)
+    }
 }
 
 pub(crate) fn next_retry_random24() -> u32 {
@@ -237,11 +272,21 @@ pub(crate) fn build_single_frame_duration<M: Hw>(
     context: &TxContext,
     expects_ack: bool,
 ) {
-    build_frame_duration(mmio, descriptor, context, expects_ack, context.tx_rate.get());
+    build_frame_duration(
+        mmio,
+        descriptor,
+        context,
+        expects_ack,
+        context.tx_rate.get(),
+    );
 }
 
 pub(crate) fn build_frame_duration<M: Hw>(
-    mmio: &mut M, descriptor: u32, context: &TxContext, expects_ack: bool, rate: u8,
+    mmio: &mut M,
+    descriptor: u32,
+    context: &TxContext,
+    expects_ack: bool,
+    rate: u8,
 ) {
     let descriptor = TxDescriptorAddress::new(descriptor);
     mmio.write(descriptor.command(), 0);
@@ -256,7 +301,10 @@ pub(crate) fn build_frame_duration<M: Hw>(
             .get(usize::from(rate))
             .map_or(0, Cell::get);
         let timing = u32::from(
-            crate::mac::TX_DURATION_TIMING.get(usize::from(timing_index)).copied().unwrap_or(0),
+            crate::mac::TX_DURATION_TIMING
+                .get(usize::from(timing_index))
+                .copied()
+                .unwrap_or(0),
         );
         let duration = low_mac
             .slot_time_initial
@@ -288,7 +336,11 @@ pub(crate) fn prepare_single_frame_pas_timing(context: &TxContext) -> Result<(),
     // The rate map index selects ACK timing only; the PHY rate words take the
     // WSM rate attribute (`request_flag_rate_bits`) unchanged. Writing the
     // index there changed healthy `0x5104....` words into `0x5107....`.
-    let airtimes = if flags & 0x4000 != 0 { &low_mac.long_airtimes } else { &low_mac.short_airtimes };
+    let airtimes = if flags & 0x4000 != 0 {
+        &low_mac.long_airtimes
+    } else {
+        &low_mac.short_airtimes
+    };
     let ack_duration = airtimes.get(usize::from(timing_index)).map_or(0, Cell::get);
     validated_context_tx_frame(context).ok_or(ProbeBuildError::PacketRamMismatch)?;
     // The vendor's special-peer response class needs PAS mode 5 or 6, which
@@ -317,15 +369,16 @@ pub(crate) fn prepare_single_frame_pas_timing(context: &TxContext) -> Result<(),
 /// # Safety
 /// `destination` must be descriptor storage in packet RAM that the MAC is not
 /// reading.
-pub(crate) fn emit_descriptor(context: &TxContext, destination: u32) -> Result<u32, ProbeBuildError> {
+pub(crate) fn emit_descriptor(
+    context: &TxContext,
+    destination: u32,
+) -> Result<u32, ProbeBuildError> {
     let length = context.frame_length.get();
     let frame = validated_tx_frame(context.frame.get(), length)
         .ok_or(ProbeBuildError::PacketRamMismatch)?;
-    let descriptor_address = packet_ram::RuntimePacketAddress::new(
-        destination,
-        core::mem::size_of::<[u32; 13]>(),
-    )
-    .ok_or(ProbeBuildError::PacketRamMismatch)?;
+    let descriptor_address =
+        packet_ram::RuntimePacketAddress::new(destination, core::mem::size_of::<[u32; 13]>())
+            .ok_or(ProbeBuildError::PacketRamMismatch)?;
     let descriptor = TxDescriptorAddress::new(descriptor_address.raw());
     let rate = context.tx_rate.get();
     let tx_flags = context.flags.get();
@@ -339,10 +392,14 @@ pub(crate) fn emit_descriptor(context: &TxContext, destination: u32) -> Result<u
     }
     // The legacy-mode byte is only ever written with zero.
     let legacy_mode = 0;
-    let rate_attribute =
-        crate::mac::RATE_ENCODING.get(usize::from(rate)).copied().unwrap_or(0);
-    let hardware_rate =
-        crate::mac::RATE_ATTRIBUTE.get(usize::from(rate)).copied().unwrap_or(0);
+    let rate_attribute = crate::mac::RATE_ENCODING
+        .get(usize::from(rate))
+        .copied()
+        .unwrap_or(0);
+    let hardware_rate = crate::mac::RATE_ATTRIBUTE
+        .get(usize::from(rate))
+        .copied()
+        .unwrap_or(0);
     let phy = build_phy_rate_words(
         rate,
         legacy_mode,
@@ -355,8 +412,8 @@ pub(crate) fn emit_descriptor(context: &TxContext, destination: u32) -> Result<u
         1,
     )
     .ok_or(ProbeBuildError::PacketRamMismatch)?;
-    let frame_control = u32::from(context.frame_control.get())
-        | if tx_flags & 0x10 != 0 { 0x0800 } else { 0 };
+    let frame_control =
+        u32::from(context.frame_control.get()) | if tx_flags & 0x10 != 0 { 0x0800 } else { 0 };
     let mut checksum = 0_u32;
     let mut word_index = 0_u32;
     let mut mismatch = false;
@@ -383,7 +440,11 @@ pub(crate) fn emit_descriptor(context: &TxContext, destination: u32) -> Result<u
         add((u32::from(length - 2) & 0x0fff) << 12 | (body.raw() & 3));
         add(0x0700_4600);
         add(0xf000_0000);
-        return if mismatch { Err(ProbeBuildError::DescriptorReadbackMismatch) } else { Ok(checksum) };
+        return if mismatch {
+            Err(ProbeBuildError::DescriptorReadbackMismatch)
+        } else {
+            Ok(checksum)
+        };
     }
     add(0x3200_0000 | u32::from(context.ack_duration.get()));
     add(0x2900_0000 | packet_ram::encode_mac_packet_offset_u32(frame.descriptor_tail()));
@@ -397,7 +458,8 @@ pub(crate) fn emit_descriptor(context: &TxContext, destination: u32) -> Result<u
     // in the payload segment, whatever the parsed header length. A probe
     // response carries the TSF like a beacon (vendor `txp_submit_to_pipe`):
     // `0x0700_8400` has the MAC fill in its 8-octet timestamp.
-    let header = if context.frame_control.get() & 0x00fc == 0x0050 && length >= PROBE_RESPONSE_BODY {
+    let header = if context.frame_control.get() & 0x00fc == 0x0050 && length >= PROBE_RESPONSE_BODY
+    {
         add(0x0700_8400);
         PROBE_RESPONSE_BODY
     } else {
@@ -410,10 +472,7 @@ pub(crate) fn emit_descriptor(context: &TxContext, destination: u32) -> Result<u
         )
         .ok_or(ProbeBuildError::PacketRamMismatch)?;
         add(0x4000_0000 | payload.tx_payload_bus_address(0x007f_fffc).raw());
-        add(
-            (u32::from(length - header) & 0x0fff) << 12
-                | (payload.raw() & 3),
-        );
+        add((u32::from(length - header) & 0x0fff) << 12 | (payload.raw() & 3));
     }
     add(0x0700_4600);
     add(0xf000_0000);

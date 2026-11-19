@@ -160,7 +160,9 @@ impl Scan {
     /// indication follows as usual.
     pub fn request_stop(&mut self) {
         if self.active {
-            self.num_channels = self.num_channels.min(self.current_channel_index.wrapping_add(1));
+            self.num_channels = self
+                .num_channels
+                .min(self.current_channel_index.wrapping_add(1));
         }
     }
 
@@ -245,14 +247,13 @@ impl Scan {
         self.probe_publication_budget = self.channel_probe_budget();
         self.probe_deadline = 0;
         self.probe_generation = self.probe_generation.wrapping_add(1);
-        self.probe_phase = if self.num_probes != 0
-            && self.num_channels != 0
-            && self.probe_publication_budget != 0
-        {
-            ActiveProbePhase::WaitingForTune
-        } else {
-            ActiveProbePhase::Disabled
-        };
+        self.probe_phase =
+            if self.num_probes != 0 && self.num_channels != 0 && self.probe_publication_budget != 0
+            {
+                ActiveProbePhase::WaitingForTune
+            } else {
+                ActiveProbePhase::Disabled
+            };
         self.probe_round = 0;
         self.probe_ssid_index = 0;
         self.probe_last_status = 0;
@@ -269,7 +270,8 @@ impl Scan {
         match self.finish_state {
             0 => false,
             1 => {
-                if !crate::tx::probe_runtime_quiescent(engine) || radio.host_transfer_outstanding() {
+                if !crate::tx::probe_runtime_quiescent(engine) || radio.host_transfer_outstanding()
+                {
                     return false;
                 }
                 crate::mac::begin_unjoined_scan_radio_stop();
@@ -280,7 +282,8 @@ impl Scan {
             }
             2 => {
                 if !crate::phy::scan_stop_rx_hardware_drained() {
-                    if (crate::platform::timer_now().wrapping_sub(self.finish_deadline) as i32) >= 0 {
+                    if (crate::platform::timer_now().wrapping_sub(self.finish_deadline) as i32) >= 0
+                    {
                         crate::tx::fatal_scan_stop_timeout();
                     }
                     return false;
@@ -314,7 +317,11 @@ impl Scan {
     }
 
     /// Advance tuning and dwell for the cooperative scan engine.
-    pub fn service(&mut self, engine: &crate::tx::TxEngine, radio: &mut crate::radio::Radio) -> Option<ScanCompletion> {
+    pub fn service(
+        &mut self,
+        engine: &crate::tx::TxEngine,
+        radio: &mut crate::radio::Radio,
+    ) -> Option<ScanCompletion> {
         #[cfg(not(target_arch = "arm"))]
         let _ = (engine, radio);
         if !self.active {
@@ -355,12 +362,12 @@ impl Scan {
                         armed.wrapping_add(channel.max_channel_time.saturating_mul(0x400));
                     self.probe_deadline = armed.wrapping_add(u32::from(self.probe_delay));
                     self.probe_publication_budget = self.channel_probe_budget();
-                    self.probe_phase =
-                        if self.num_probes == 0 || self.probe_publication_budget == 0 {
-                            ActiveProbePhase::Disabled
-                        } else {
-                            ActiveProbePhase::WaitingForDelay
-                        };
+                    self.probe_phase = if self.num_probes == 0 || self.probe_publication_budget == 0
+                    {
+                        ActiveProbePhase::Disabled
+                    } else {
+                        ActiveProbePhase::WaitingForDelay
+                    };
                     self.probe_round = 0;
                     self.probe_ssid_index = 0;
                 }
@@ -417,12 +424,11 @@ impl Scan {
             self.current_channel_index = self.current_channel_index.wrapping_add(1);
             if self.current_channel_index < self.num_channels {
                 self.hardware_tune_pending = true;
-                self.probe_phase =
-                    if self.channel_probe_budget() == 0 {
-                        ActiveProbePhase::Disabled
-                    } else {
-                        ActiveProbePhase::WaitingForTune
-                    };
+                self.probe_phase = if self.channel_probe_budget() == 0 {
+                    ActiveProbePhase::Disabled
+                } else {
+                    ActiveProbePhase::WaitingForTune
+                };
                 return None;
             }
         }
@@ -483,7 +489,9 @@ impl Scan {
     /// Every channel gets its own probes: a budget for the whole request
     /// left all but the first two channels passive.
     fn channel_probe_budget(&self) -> u8 {
-        self.num_probes.saturating_mul(self.num_ssids.max(1)).min(PROBES_PER_CHANNEL)
+        self.num_probes
+            .saturating_mul(self.num_ssids.max(1))
+            .min(PROBES_PER_CHANNEL)
     }
 
     pub fn active_interface(&self) -> Option<u8> {
@@ -561,12 +569,7 @@ impl Scan {
         Some(length)
     }
 
-    fn complete_probe_at(
-        &mut self,
-        opportunity: ProbeOpportunity,
-        status: u16,
-        now: u32,
-    ) -> bool {
+    fn complete_probe_at(&mut self, opportunity: ProbeOpportunity, status: u16, now: u32) -> bool {
         if self.probe_generation != opportunity.generation
             || self.probe_phase != ActiveProbePhase::InFlight
             || self.if_id != opportunity.if_id
@@ -641,11 +644,7 @@ impl Scan {
 
     pub fn channel_program_request(&self, index: usize) -> Option<ChannelProgramRequestWire> {
         (index < usize::from(self.num_channels)).then(|| {
-            build_scan_channel_program_request(
-                self.band,
-                self.flags,
-                self.channels[index].number,
-            )
+            build_scan_channel_program_request(self.band, self.flags, self.channels[index].number)
         })
     }
 
@@ -695,7 +694,8 @@ mod tests {
         assert_eq!(scan.channel(0).map(|channel| channel.number), Some(6));
         assert_eq!(scan.channel_control(0), Some(0x0117));
         assert_eq!(
-            scan.channel_program_request(0).map(|request| request.control.get()),
+            scan.channel_program_request(0)
+                .map(|request| request.control.get()),
             Some(0x0117)
         );
         assert_eq!(
@@ -729,7 +729,10 @@ mod tests {
         let Ok(request) = StartScanRequest::parse(&payload) else {
             panic!("invalid-timing scan request did not parse");
         };
-        assert_eq!(scan.begin(&request, 1), Err(ScanError::InvalidChannelTiming));
+        assert_eq!(
+            scan.begin(&request, 1),
+            Err(ScanError::InvalidChannelTiming)
+        );
     }
 
     #[test]
@@ -789,12 +792,14 @@ mod tests {
         storage.probe_publication_budget = 2;
 
         assert_eq!(storage.claim_probe_opportunity_at(99), None);
-        let first = storage.claim_probe_opportunity_at(100).unwrap_or(ProbeOpportunity {
-            generation: 0,
-            if_id: 0,
-            channel: 0,
-            ssid_index: 0,
-        });
+        let first = storage
+            .claim_probe_opportunity_at(100)
+            .unwrap_or(ProbeOpportunity {
+                generation: 0,
+                if_id: 0,
+                channel: 0,
+                ssid_index: 0,
+            });
         assert_eq!(first.generation, 7);
         assert_eq!(storage.probe_phase, ActiveProbePhase::InFlight);
         assert!(storage.complete_probe_at(first, 0, 200));
@@ -803,12 +808,14 @@ mod tests {
         assert_eq!(storage.probe_phase, ActiveProbePhase::WaitingForDelay);
 
         assert_eq!(storage.claim_probe_opportunity_at(2247), None);
-        let second = storage.claim_probe_opportunity_at(2248).unwrap_or(ProbeOpportunity {
-            generation: 0,
-            if_id: 0,
-            channel: 0,
-            ssid_index: 0,
-        });
+        let second = storage
+            .claim_probe_opportunity_at(2248)
+            .unwrap_or(ProbeOpportunity {
+                generation: 0,
+                if_id: 0,
+                channel: 0,
+                ssid_index: 0,
+            });
         assert!(storage.complete_probe_at(second, 0, 2300));
         assert_eq!(storage.probe_round, 2);
         assert_eq!(storage.probe_publication_budget, 0);

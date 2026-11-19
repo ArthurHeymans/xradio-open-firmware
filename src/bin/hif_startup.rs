@@ -6,6 +6,8 @@ use core::arch::global_asm;
 use core::cell::UnsafeCell;
 use core::mem::MaybeUninit;
 use core::panic::PanicInfo;
+use xr819_firmware::configuration::Configuration;
+use xr819_firmware::crypto::Crypto;
 use xr819_firmware::firmware::Firmware;
 use xr819_firmware::hif::{HifQueues, HifRingState, SHARED_BUFFER_SIZE, Transport};
 use xr819_firmware::mac;
@@ -16,11 +18,9 @@ use xr819_firmware::platform::{
     prepare_memory_and_interrupts, prepare_packet_dma, register_packet_dma_interrupts,
     register_post_activation_interrupts, try_activate_hif,
 };
-use xr819_firmware::tx;
-use xr819_firmware::crypto::Crypto;
 use xr819_firmware::radio::Radio;
-use xr819_firmware::configuration::Configuration;
 use xr819_firmware::scan::Scan;
+use xr819_firmware::tx;
 use xr819_firmware::tx::HostTxDriver;
 use xr819_firmware::wsm::StartupIndication;
 
@@ -73,7 +73,6 @@ static CRYPTO: BootValue<Crypto> = BootValue::new(Crypto::new());
 static RADIO: BootValue<Radio> = BootValue::new(Radio::new());
 static SCAN: BootValue<Scan> = BootValue::new(Scan::new());
 static CONFIGURATION: BootValue<Configuration> = BootValue::new(Configuration::new());
-
 
 // The ARM9 exception vectors execute in ARM state even though the firmware
 // body is Thumb. Each terminal veneer saves the unmodified shared registers on

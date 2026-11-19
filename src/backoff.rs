@@ -96,7 +96,10 @@ mod tests {
     fn state(banks: &[Pas], interface: u8, queue: u8) -> (u32, u32) {
         let pas = &banks[usize::from(interface)];
         let queue = usize::from(queue);
-        (pas.retry_count[queue].get(), pas.contention_window[queue].get())
+        (
+            pas.retry_count[queue].get(),
+            pas.contention_window[queue].get(),
+        )
     }
 
     #[test]
@@ -155,7 +158,10 @@ mod tests {
         assert_eq!(grow(&banks, 0, 4), Err(BackoffBankError::AccessCategory));
         assert_eq!(reset(&banks, 3, 0), Err(BackoffBankError::Interface));
         assert_eq!(reset(&banks, 0, 4), Err(BackoffBankError::AccessCategory));
-        assert_eq!(reset_all_queues(&banks, 3), Err(BackoffBankError::Interface));
+        assert_eq!(
+            reset_all_queues(&banks, 3),
+            Err(BackoffBankError::Interface)
+        );
         assert_eq!(state(&banks, 0, 0), (5, 511));
     }
 

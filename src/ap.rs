@@ -75,8 +75,10 @@ impl AccessPoint {
             return Err(ApError::Join(crate::join::JoinError::Unsupported));
         }
         self.stop();
-        crate::join::activate_ap(engine, crypto, radio, scanning, station_id, interface, request)
-            .map_err(ApError::Join)?;
+        crate::join::activate_ap(
+            engine, crypto, radio, scanning, station_id, interface, request,
+        )
+        .map_err(ApError::Join)?;
         self.bss = Some(Bss {
             interface,
             interval_us: u64::from(request.beacon_interval.max(1)) * 1024,
@@ -91,11 +93,17 @@ impl AccessPoint {
     #[cfg(target_arch = "arm")]
     pub fn set_beaconing(&mut self, enable: bool) -> Result<(), ApError> {
         let Some(bss) = self.bss.as_mut() else {
-            return if enable { Err(ApError::NotStarted) } else { Ok(()) };
+            return if enable {
+                Err(ApError::NotStarted)
+            } else {
+                Ok(())
+            };
         };
         match (enable, bss.beacon_buffer) {
             (true, None) => {
-                let buffer = crate::tx::contexts().reserve_beacon_buffer().ok_or(ApError::Busy)?;
+                let buffer = crate::tx::contexts()
+                    .reserve_beacon_buffer()
+                    .ok_or(ApError::Busy)?;
                 bss.beacon_buffer = Some(buffer);
                 crate::mac::start_beaconing(0);
             }
@@ -121,10 +129,14 @@ impl AccessPoint {
         let Some(buffer) = bss.beacon_buffer else {
             return;
         };
-        let Some(tbtt) = bss.prepare_at(crate::mac::tsf(), TBTT_EVENTS.get()) else { return };
-        if let Some((true, multicast)) = configuration.with_beacon(tbtt / bss.interval_us, |template| {
-            load_beacon(bss.interface, buffer, template)
-        }) {
+        let Some(tbtt) = bss.prepare_at(crate::mac::tsf(), TBTT_EVENTS.get()) else {
+            return;
+        };
+        if let Some((true, multicast)) = configuration
+            .with_beacon(tbtt / bss.interval_us, |template| {
+                load_beacon(bss.interface, buffer, template)
+            })
+        {
             crate::mac::arm_beacon(tbtt);
             bss.armed = Some((tbtt, TBTT_EVENTS.get(), multicast));
         }
@@ -132,7 +144,9 @@ impl AccessPoint {
 
     /// Whether a multicast-start indication is owed; `published` clears it.
     pub fn multicast_start_owed(&self) -> bool {
-        self.bss.as_ref().is_some_and(|bss| bss.multicast_start_owed)
+        self.bss
+            .as_ref()
+            .is_some_and(|bss| bss.multicast_start_owed)
     }
 
     pub fn multicast_start_published(&mut self) {
@@ -144,7 +158,10 @@ impl AccessPoint {
     /// Microseconds until [`Self::service`] has work.
     #[cfg(target_arch = "arm")]
     pub fn wake_in(&self) -> Option<u32> {
-        let bss = self.bss.as_ref().filter(|bss| bss.beacon_buffer.is_some())?;
+        let bss = self
+            .bss
+            .as_ref()
+            .filter(|bss| bss.beacon_buffer.is_some())?;
         let tsf = crate::mac::tsf();
         let due = match bss.armed {
             Some((tbtt, ..)) => tbtt + EVENT_TIMEOUT_US,
@@ -208,8 +225,13 @@ mod tests {
 
     #[test]
     fn multicast_belongs_to_one_beaconing_lifetime() {
-        let mut b = Bss { interface: 0, interval_us: 102_400, beacon_buffer: None,
-            armed: None, multicast_start_owed: false };
+        let mut b = Bss {
+            interface: 0,
+            interval_us: 102_400,
+            beacon_buffer: None,
+            armed: None,
+            multicast_start_owed: false,
+        };
         assert_eq!(b.prepare_at(102_399, 7), Some(102_400));
         b.armed = Some((102_400, 7, true));
         assert_eq!(b.prepare_at(102_401, 7), None);

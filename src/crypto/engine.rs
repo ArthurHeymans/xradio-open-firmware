@@ -2,9 +2,9 @@
 //! moves the payload by DMA and signals completion on IRQ 18/20; host builds
 //! run the same transfer through RustCrypto at once.
 
-use super::{CCMP_HEADER_LEN, CCMP_MIC_LEN, CcmpError};
 #[cfg(target_arch = "arm")]
 use super::qos_tid;
+use super::{CCMP_HEADER_LEN, CCMP_MIC_LEN, CcmpError};
 #[cfg(target_arch = "arm")]
 use tock_registers::{
     interfaces::{Readable, Writeable},
@@ -28,7 +28,9 @@ impl Transfer<'_> {
     /// The payload between the CCMP header and the MIC.
     fn payload(&self, frame_len: usize) -> Result<core::ops::Range<usize>, CcmpError> {
         let start = self.header + CCMP_HEADER_LEN;
-        let end = frame_len.checked_sub(CCMP_MIC_LEN).ok_or(CcmpError::MalformedFrame)?;
+        let end = frame_len
+            .checked_sub(CCMP_MIC_LEN)
+            .ok_or(CcmpError::MalformedFrame)?;
         if end < start {
             return Err(CcmpError::MalformedFrame);
         }
@@ -76,7 +78,6 @@ fn hardware_aad_stream(aad: &[u8; 30], aad_length: usize) -> Result<[u8; 32], Cc
     stream[2..2 + aad_length].copy_from_slice(&aad[..aad_length]);
     Ok(stream)
 }
-
 
 #[cfg(target_arch = "arm")]
 register_structs! {
@@ -162,7 +163,9 @@ impl Engine {
 
     fn write_fifo_block(&self, block: &[u8]) {
         for word in block.chunks_exact(4) {
-            self.registers().fifo.set(u32::from_le_bytes([word[0], word[1], word[2], word[3]]));
+            self.registers()
+                .fifo
+                .set(u32::from_le_bytes([word[0], word[1], word[2], word[3]]));
         }
     }
 
@@ -172,7 +175,9 @@ impl Engine {
         let registers = self.registers();
         registers.command_status.set(0);
         self.wait_status(|status| status & (1 << 12) == 0)?;
-        registers.init_port.set(0x8000_0000 | u32::from(MODE1_INIT_PAYLOAD[0]));
+        registers
+            .init_port
+            .set(0x8000_0000 | u32::from(MODE1_INIT_PAYLOAD[0]));
         for byte in &MODE1_INIT_PAYLOAD[1..] {
             registers.init_port.set(u32::from(*byte));
         }
@@ -181,9 +186,9 @@ impl Engine {
     }
 
     pub fn init_payload_checksum() -> u32 {
-        MODE1_INIT_PAYLOAD
-            .iter()
-            .fold(0_u32, |value, byte| value.rotate_left(5).wrapping_add(u32::from(*byte)))
+        MODE1_INIT_PAYLOAD.iter().fold(0_u32, |value, byte| {
+            value.rotate_left(5).wrapping_add(u32::from(*byte))
+        })
     }
 
     /// Load key, nonce and AAD and start the payload DMA. `trace` sees the
@@ -197,11 +202,14 @@ impl Engine {
         debug_assert!(self.running.is_none());
         let payload = transfer.payload(frame.len())?;
         let payload_length = payload.len();
-        let payload_address = crate::packet_ram::packet_dma_bus_address(frame[payload.start..].as_mut_ptr() as usize)
-            .ok_or(CcmpError::InvalidDmaAddress)?;
-        let context = hardware_ccm_context(frame, transfer.frame_control, transfer.pn, payload_length)?;
+        let payload_address =
+            crate::packet_ram::packet_dma_bus_address(frame[payload.start..].as_mut_ptr() as usize)
+                .ok_or(CcmpError::InvalidDmaAddress)?;
+        let context =
+            hardware_ccm_context(frame, transfer.frame_control, transfer.pn, payload_length)?;
         let aad_stream = hardware_aad_stream(transfer.aad, transfer.aad_length)?;
-        let tail = hardware_aad_tail_command(transfer.aad_length).ok_or(CcmpError::MalformedFrame)?;
+        let tail =
+            hardware_aad_tail_command(transfer.aad_length).ok_or(CcmpError::MalformedFrame)?;
         // Decryption uses the command one below encryption's.
         let direction = u32::from(transfer.decrypt);
         let registers = self.registers();
@@ -322,7 +330,8 @@ impl Engine {
         };
         let payload = transfer.payload(frame.len())?;
         let nonce = super::build_nonce(frame, transfer.frame_control, transfer.pn)?;
-        let cipher = Ccm::<Aes128, U8, U13>::new_from_slice(transfer.key).map_err(|_| CcmpError::Authentication)?;
+        let cipher = Ccm::<Aes128, U8, U13>::new_from_slice(transfer.key)
+            .map_err(|_| CcmpError::Authentication)?;
         let aad = &transfer.aad[..transfer.aad_length];
         let (data, mic) = frame.split_at_mut(payload.end);
         let data = &mut data[payload.start..];

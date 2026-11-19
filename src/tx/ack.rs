@@ -1,8 +1,8 @@
 //! Hardware-free aggregate reply ownership. A BlockAck describes a stream
 //! window, not a transaction ID: one bitmap can answer several aggregates.
 
-use core::cell::Cell;
 use super::ampdu::{BlockAck, MAX_MEMBERS};
+use core::cell::Cell;
 
 pub const WAIT_US: u32 = 10_000;
 
@@ -28,12 +28,22 @@ pub enum Completion {
 impl Pending {
     pub fn new(own: [u8; 6], peer: [u8; 6], tid: u8, sequences: &[u16]) -> Option<Self> {
         let (&first, _) = sequences.split_first()?;
-        if sequences.len() > MAX_MEMBERS || sequences.iter().any(|&seq| seq.wrapping_sub(first) & 0x0fff >= 64) {
+        if sequences.len() > MAX_MEMBERS
+            || sequences
+                .iter()
+                .any(|&seq| seq.wrapping_sub(first) & 0x0fff >= 64)
+        {
             return None;
         }
         let mut pending = Self {
-            own, peer, tid, sequences: [0; MAX_MEMBERS], count: sequences.len(),
-            acknowledged: 0, seen: false, waiting: None,
+            own,
+            peer,
+            tid,
+            sequences: [0; MAX_MEMBERS],
+            count: sequences.len(),
+            acknowledged: 0,
+            seen: false,
+            waiting: None,
         };
         pending.sequences[..sequences.len()].copy_from_slice(sequences);
         Some(pending)
@@ -48,7 +58,11 @@ impl Pending {
             bits | (u16::from(ack.acknowledges(seq)) << index)
         });
         let first = sequences[0];
-        let span = sequences.iter().map(|&seq| seq.wrapping_sub(first) & 0x0fff).max().unwrap_or(0);
+        let span = sequences
+            .iter()
+            .map(|&seq| seq.wrapping_sub(first) & 0x0fff)
+            .max()
+            .unwrap_or(0);
         // Merely lying in the ACK's 64-entry window is insufficient: an
         // older ACK often covers later, not-yet-transmitted sequence numbers
         // with zero bits. Require positive evidence, or an SSN within this
@@ -75,14 +89,19 @@ impl Pending {
     }
 
     pub fn wake_in(&self, now: u32) -> Option<u32> {
-        self.waiting.map(|since| crate::deadline::until(since.wrapping_add(WAIT_US), now))
+        self.waiting
+            .map(|since| crate::deadline::until(since.wrapping_add(WAIT_US), now))
     }
 }
 
 /// Route cumulative evidence to every matching owner, not the first table
 /// entry. In-flight owners retain it until MAC completion; waiting owners
 /// resolve now. `resolve` also clears that owner's cell.
-pub fn route<'a>(ack: BlockAck, owners: impl Iterator<Item = &'a Cell<Option<Pending>>>, mut resolve: impl FnMut(usize, u16)) {
+pub fn route<'a>(
+    ack: BlockAck,
+    owners: impl Iterator<Item = &'a Cell<Option<Pending>>>,
+    mut resolve: impl FnMut(usize, u16),
+) {
     for (index, owner) in owners.enumerate() {
         if let Some(mut pending) = owner.get() {
             let delivered = pending.observe(ack);
@@ -101,7 +120,13 @@ mod tests {
     const PEER: [u8; 6] = [4; 6];
 
     fn ack(ssn: u16, bitmap: u64) -> BlockAck {
-        BlockAck { receiver: OWN, transmitter: PEER, tid: 0, ssn, bitmap }
+        BlockAck {
+            receiver: OWN,
+            transmitter: PEER,
+            tid: 0,
+            ssn,
+            bitmap,
+        }
     }
 
     fn pending(sequences: &[u16]) -> Cell<Option<Pending>> {
@@ -126,11 +151,33 @@ mod tests {
 
     #[test]
     fn early_and_waiting_replies_stay_with_peer_tid_and_local_address() {
-        let owners = [pending(&[10, 11]), Cell::new(Pending::new([6; 6], [8; 6], 0, &[10, 11]))];
+        let owners = [
+            pending(&[10, 11]),
+            Cell::new(Pending::new([6; 6], [8; 6], 0, &[10, 11])),
+        ];
         assert_eq!(complete(&owners[0], 0), Completion::Waiting);
-        assert!(deliver(&owners, BlockAck { receiver: [6; 6], transmitter: [8; 6], ..ack(10, 3) }).is_empty());
+        assert!(
+            deliver(
+                &owners,
+                BlockAck {
+                    receiver: [6; 6],
+                    transmitter: [8; 6],
+                    ..ack(10, 3)
+                }
+            )
+            .is_empty()
+        );
         assert_eq!(complete(&owners[1], 1), Completion::Resolved(3));
-        assert!(deliver(&owners, BlockAck { tid: 1, ..ack(10, 3) }).is_empty());
+        assert!(
+            deliver(
+                &owners,
+                BlockAck {
+                    tid: 1,
+                    ..ack(10, 3)
+                }
+            )
+            .is_empty()
+        );
         assert_eq!(deliver(&owners, ack(10, 1)), [(0, 1)]);
     }
 
@@ -197,8 +244,20 @@ mod tests {
         let owners = [pending(&[100, 101])];
         let start = u32::MAX - 99;
         assert_eq!(complete(&owners[0], start), Completion::Waiting);
-        assert_eq!(owners[0].get().unwrap().wake_in(start.wrapping_add(WAIT_US - 1)), Some(1));
-        assert_eq!(owners[0].get().unwrap().wake_in(start.wrapping_add(WAIT_US)), Some(0));
+        assert_eq!(
+            owners[0]
+                .get()
+                .unwrap()
+                .wake_in(start.wrapping_add(WAIT_US - 1)),
+            Some(1)
+        );
+        assert_eq!(
+            owners[0]
+                .get()
+                .unwrap()
+                .wake_in(start.wrapping_add(WAIT_US)),
+            Some(0)
+        );
         // The runtime resolves with no bits at timeout, then reuses the cell.
         owners[0].set(Pending::new(OWN, PEER, 0, &[102, 103]));
         deliver(&owners, ack(100, 3));

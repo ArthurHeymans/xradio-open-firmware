@@ -67,7 +67,9 @@ impl RuntimePacketAddress {
     }
 
     #[inline(always)]
-    pub const fn raw(self) -> u32 { self.0 }
+    pub const fn raw(self) -> u32 {
+        self.0
+    }
 
     #[inline(always)]
     pub const fn mac_offset(self) -> MacPacketOffset {
@@ -82,12 +84,16 @@ impl RuntimePacketAddress {
 
 impl MacPacketOffset {
     #[inline(always)]
-    pub const fn raw(self) -> u32 { self.0 }
+    pub const fn raw(self) -> u32 {
+        self.0
+    }
 }
 
 impl TxPayloadBusAddress {
     #[inline(always)]
-    pub const fn raw(self) -> u32 { self.0 }
+    pub const fn raw(self) -> u32 {
+        self.0
+    }
 }
 
 #[repr(C, align(4))]
@@ -280,8 +286,7 @@ pub fn response_command(index: usize) -> usize {
 pub fn response_command_index(address: usize) -> Option<usize> {
     let range = response_commands();
     let offset = address.checked_sub(range.start)?;
-    (address < range.end && offset % TX_COMMAND_SIZE == 0)
-        .then_some(offset / TX_COMMAND_SIZE)
+    (address < range.end && offset % TX_COMMAND_SIZE == 0).then_some(offset / TX_COMMAND_SIZE)
 }
 
 #[inline(always)]
@@ -370,10 +375,7 @@ pub const fn encode_mac_packet_offset_u32(cpu_address: u32) -> u32 {
 /// mask. This is a pure descriptor encoding; publication retains and validates
 /// the separate CPU-form context identity.
 #[inline(always)]
-pub const fn encode_tx_payload_bus_address(
-    cpu_address: u32,
-    address_mask: u32,
-) -> u32 {
+pub const fn encode_tx_payload_bus_address(cpu_address: u32, address_mask: u32) -> u32 {
     address_mask & cpu_address & 0xf6ff_ffff
 }
 
@@ -435,7 +437,9 @@ pub fn contains_runtime_storage(address: usize) -> bool {
 
 #[inline(always)]
 pub fn contains_runtime_range(address: usize, length: usize) -> bool {
-    let Some(end) = address.checked_add(length) else { return false };
+    let Some(end) = address.checked_add(length) else {
+        return false;
+    };
     let contains = |range: Range<usize>| address >= range.start && end <= range.end;
     contains(host_frame_states())
         || contains(response_pointers())
@@ -508,5 +512,4 @@ mod tests {
         assert!(RuntimePacketAddress::new(RUNTIME_CPU_START & 0x007f_ffff, 4).is_none());
         assert!(RuntimePacketAddress::new(RX_FIFO_CPU_START, 4).is_none());
     }
-
 }

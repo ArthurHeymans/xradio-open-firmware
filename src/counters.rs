@@ -46,7 +46,11 @@ pub fn bump(counter: Counter) {
 /// unacknowledged attempts.
 pub fn tx_completed(status: u32, ack_failures: u8) {
     bump(Counter::TxPackets);
-    bump(if status == 0 { Counter::TxFramesSuccess } else { Counter::TxFrameFailures });
+    bump(if status == 0 {
+        Counter::TxFramesSuccess
+    } else {
+        Counter::TxFrameFailures
+    });
     if ack_failures > 0 {
         bump(Counter::TxFramesRetried);
     }
@@ -72,6 +76,16 @@ mod tests {
         tx_completed(2, 4);
         let after = snapshot();
         let delta = |index: usize| after[index] - before[index];
-        assert_eq!([delta(2), delta(9), delta(10), delta(11), delta(12), delta(16)], [3, 2, 1, 2, 2, 6]);
+        assert_eq!(
+            [
+                delta(2),
+                delta(9),
+                delta(10),
+                delta(11),
+                delta(12),
+                delta(16)
+            ],
+            [3, 2, 1, 2, 2, 6]
+        );
     }
 }

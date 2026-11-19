@@ -122,7 +122,6 @@ impl MacEvent {
     pub fn completion_status(self) -> Option<u8> {
         self.completion_marker.then_some(self.status)
     }
-
 }
 
 /// The CPSR, for the fatal postmortem record.
@@ -138,10 +137,7 @@ pub(crate) fn read_cpsr() -> u32 {
 /// The caller must own the destructive MAC event consumer. This function never
 /// returns and the record may only be reused after a full firmware reset.
 #[cfg(target_arch = "arm")]
-pub fn enter_mac_fatal_quiescence(
-    event: MacEvent,
-    saved_scheduler_word: SchedulerWord,
-) -> ! {
+pub fn enter_mac_fatal_quiescence(event: MacEvent, saved_scheduler_word: SchedulerWord) -> ! {
     let cpsr = read_cpsr();
     let record = MAC_FATAL_POSTMORTEM.get();
     unsafe { core::ptr::addr_of_mut!((*record).valid).write_volatile(0) };
@@ -427,15 +423,12 @@ pub(crate) fn service_mac_event_fifo(backend: &mut SingleProbeMacBackend, max_ev
         service_mac_event(backend, event);
         backend.serviced = backend.serviced.wrapping_add(1);
         processed += 1;
-        if processed == max_events
-            || (read_u32(MAC_EVENT_READINESS as usize) as i32) < 0
-        {
+        if processed == max_events || (read_u32(MAC_EVENT_READINESS as usize) as i32) < 0 {
             return;
         }
         raw = read_u32(crate::platform::mac_register(0x0a20));
     }
 }
-
 
 /// State TX keeps across MAC events: the PHY operation it drives around a
 /// scheduler pass, and the duration word whose sequence number advances when
@@ -535,7 +528,9 @@ pub(crate) fn service_pipe_tx_success(pipe_index: u8) {
         };
         let context = current_slot.context.get();
         let flags = context.flags.get();
-        if slot.prefix.get().is_none() && success_marker_resets_backoff(pipe_state, retry_rate, flags) {
+        if slot.prefix.get().is_none()
+            && success_marker_resets_backoff(pipe_state, retry_rate, flags)
+        {
             let _ = crate::backoff::reset(
                 crate::backoff::banks(),
                 context.interface.get(),
@@ -623,7 +618,9 @@ pub(crate) fn service_pipe_tx_start(pipe: u8) {
 
         // Descriptor word 2 bit 27 marks a frame whose successor starts on its
         // own; otherwise the software cursor follows the MAC here.
-        if read_u32(live_slot.command() as usize + 8) & (1 << 27) == 0 && current != record.last.get() {
+        if read_u32(live_slot.command() as usize + 8) & (1 << 27) == 0
+            && current != record.last.get()
+        {
             record.current.set(current.wrapping_add(1) & 3);
         }
     }
@@ -651,7 +648,9 @@ pub(crate) fn service_mac_irq_count_status(event_type: u8) {
         return;
     }
     SEQUENCING.sequence_pending.set(true);
-    SEQUENCING.sequence_slot.set(crate::mac::low_mac().pas(0_usize).path_selector.get());
+    SEQUENCING
+        .sequence_slot
+        .set(crate::mac::low_mac().pas(0_usize).path_selector.get());
 }
 
 /// `pac_phy_stop_op`: enter command 7. The vendor arms the operation timer

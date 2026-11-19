@@ -109,7 +109,11 @@ impl HostTxDriver {
         activity
             .with(self.next_admission_order)
             .with(self.next_confirmation_order)
-            .with(self.sealing.as_ref().map_or(u32::MAX, |(index, _)| *index as u32))
+            .with(
+                self.sealing
+                    .as_ref()
+                    .map_or(u32::MAX, |(index, _)| *index as u32),
+            )
             .with(self.states.generation())
     }
 
@@ -136,7 +140,8 @@ impl HostTxDriver {
     /// A hardware-idle test alone misses classified, sealing and sealed frames.
     pub fn key_change_drained(&self) -> bool {
         let masks = self.states.masks();
-        self.sealing.is_none() && crate::key_change::owners_drained(masks.occupied, masks.confirming)
+        self.sealing.is_none()
+            && crate::key_change::owners_drained(masks.occupied, masks.confirming)
     }
 
     /// Admit and classify one ordinary host request; [`Self::seal`] takes it
@@ -165,7 +170,10 @@ impl HostTxDriver {
         match tx::classify(&mut retained) {
             Ok(Some(tid)) => {
                 if let Some(link) = tx::block_ack_link(retained.context()) {
-                    engine.ba.link(link).on_qos_data(tid, engine.block_ack_tx_tids);
+                    engine
+                        .ba
+                        .link(link)
+                        .on_qos_data(tid, engine.block_ack_tx_tids);
                 }
             }
             Ok(None) => {}
@@ -201,11 +209,18 @@ impl HostTxDriver {
             let Some(index) = self.oldest_classified() else {
                 return;
             };
-            let Some(HostTxState::Owned { mut retained, hardware: None }) = self.states[index].take() else {
+            let Some(HostTxState::Owned {
+                mut retained,
+                hardware: None,
+            }) = self.states[index].take()
+            else {
                 crate::halt_always!();
             };
             let started = tx::start_encryption(&mut retained, crypto);
-            self.states[index] = Some(HostTxState::Owned { retained, hardware: None });
+            self.states[index] = Some(HostTxState::Owned {
+                retained,
+                hardware: None,
+            });
             match started {
                 Ok(Started::Plain) => self.sealed(index, true),
                 Ok(Started::Running(job)) => self.sealing = Some((index, job)),
@@ -217,17 +232,28 @@ impl HostTxDriver {
 
     /// The admitted frame that has waited longest for encryption.
     fn oldest_classified(&self) -> Option<usize> {
-        let classified = indices(self.states.masks().classified).map(|index| (index, self.admission_orders[index]));
+        let classified = indices(self.states.masks().classified)
+            .map(|index| (index, self.admission_orders[index]));
         tx::oldest_pending_context(classified, self.next_admission_order)
     }
 
     /// Queue a sealed frame as pending, or fail it back to the host.
     fn sealed(&mut self, index: usize, encrypted: bool) {
-        let Some(HostTxState::Owned { mut retained, hardware: None }) = self.states[index].take() else {
+        let Some(HostTxState::Owned {
+            mut retained,
+            hardware: None,
+        }) = self.states[index].take()
+        else {
             crate::halt_always!();
         };
-        if encrypted && tx::finish_preparation(&mut retained).is_ok() && tx::enqueue_post_crypto(&mut retained).is_ok() {
-            self.states[index] = Some(HostTxState::Owned { retained, hardware: None });
+        if encrypted
+            && tx::finish_preparation(&mut retained).is_ok()
+            && tx::enqueue_post_crypto(&mut retained).is_ok()
+        {
+            self.states[index] = Some(HostTxState::Owned {
+                retained,
+                hardware: None,
+            });
         } else {
             let completion_order = self.allocate_confirmation_order();
             self.states[index] = Some(Self::cancelled_confirmation(retained, completion_order));
@@ -321,13 +347,15 @@ impl HostTxDriver {
     }
 
     fn next_software_owner(&self, visited: u32) -> Option<usize> {
-        let pending = indices(self.states.masks().pending & !visited).map(|index| (index, self.admission_orders[index]));
+        let pending = indices(self.states.masks().pending & !visited)
+            .map(|index| (index, self.admission_orders[index]));
         tx::oldest_pending_context(pending, self.next_admission_order)
     }
 
     /// No data frame is in the MAC.
     pub fn hardware_idle(&self) -> bool {
-        self.hardware_runtime_owners().is_some_and(|owners| owners.is_empty())
+        self.hardware_runtime_owners()
+            .is_some_and(|owners| owners.is_empty())
     }
 
     /// Per BlockAck stream, the sequence number of the oldest frame the
@@ -373,9 +401,10 @@ impl HostTxDriver {
             return;
         };
         match &self.states[index] {
-            Some(HostTxState::Owned { retained, hardware: Some(hardware) })
-                if retained.phase() == tx::HostTxPhase::Scheduled =>
-            {
+            Some(HostTxState::Owned {
+                retained,
+                hardware: Some(hardware),
+            }) if retained.phase() == tx::HostTxPhase::Scheduled => {
                 // The completion names the slot this context was published
                 // in. A live owner that disagrees can never complete and
                 // holds every later frame back: say where, rather than stall.
@@ -397,8 +426,15 @@ impl HostTxDriver {
         if completion.status == tx::aggregate::REQUEUED {
             // An aggregate did not deliver it; it is back on the PAS ring.
             let _ = retained.transition(tx::HostTxPhase::PasQueued);
-            retained.context().get().terminal_status.set(tx::STATUS_PENDING);
-            self.states[index] = Some(HostTxState::Owned { retained, hardware: None });
+            retained
+                .context()
+                .get()
+                .terminal_status
+                .set(tx::STATUS_PENDING);
+            self.states[index] = Some(HostTxState::Owned {
+                retained,
+                hardware: None,
+            });
             return;
         }
         let _ = retained.transition(tx::HostTxPhase::Completing);
@@ -406,7 +442,9 @@ impl HostTxDriver {
         if status != 0
             && let Some((stream, sequence)) = tx::block_ack_stream(retained.context())
         {
-            block_ack.link((stream / 8) as u8).on_given_up((stream % 8) as u8, sequence);
+            block_ack
+                .link((stream / 8) as u8)
+                .on_given_up((stream % 8) as u8, sequence);
         }
         let completion_order = self.allocate_confirmation_order();
         self.states[index] = Some(Self::confirmation_state(
@@ -420,11 +458,7 @@ impl HostTxDriver {
     /// Publish up to four ready PAS contexts onto a pipe without a retained
     /// runtime owner. The batch is staged into consecutive slots of one pipe
     /// and crosses the MAC trigger boundary once.
-    fn publish_ready_batch(
-        &mut self,
-        engine: &mut tx::TxEngine,
-        owners: tx::Class0RuntimeOwners,
-    ) {
+    fn publish_ready_batch(&mut self, engine: &mut tx::TxEngine, owners: tx::Class0RuntimeOwners) {
         // Context indices are reusable storage, not transmission order: walk
         // the PAS ring so the head and every batch member keep FIFO order.
         let mut candidate_pipes = [None; HOST_CONTEXT_COUNT];
@@ -453,12 +487,17 @@ impl HostTxDriver {
                 continue;
             }
             let context = retained.context();
-            let policy = engine.protection.get(usize::from(context.get().interface.get()))
-                .copied().unwrap_or(tx::ProtectionPolicy::DISABLED);
-            if tx::apply_protection_policy(context, policy).is_err() { continue; }
+            let policy = engine
+                .protection
+                .get(usize::from(context.get().interface.get()))
+                .copied()
+                .unwrap_or(tx::ProtectionPolicy::DISABLED);
+            if tx::apply_protection_policy(context, policy).is_err() {
+                continue;
+            }
             candidate_pipes[index] = Some(pipe);
-            standalone[index] = context.get().flags.get() & 0x200 != 0
-                || context.get().protection.get().is_some();
+            standalone[index] =
+                context.get().flags.get() & 0x200 != 0 || context.get().protection.get().is_some();
             candidate_order[ready_count] = index;
             ready_count += 1;
         }
@@ -481,13 +520,10 @@ impl HostTxDriver {
             let _ = tx::start_phy_operation_1();
             self.scheduler_phy_started_this_pass = true;
         }
-        let first_reservation = match {
-            tx::reserve_non_aggregate_scheduler(&mut first, engine)
-        } {
+        let first_reservation = match { tx::reserve_non_aggregate_scheduler(&mut first, engine) } {
             Ok(reservation) => reservation,
             Err(tx::SchedulerReserveError::Expired) => {
-                if tx::reject_unscheduled_pas(&mut first).is_ok()
-                {
+                if tx::reject_unscheduled_pas(&mut first).is_ok() {
                     let _ = first.transition(tx::HostTxPhase::Completing);
                     let completion_order = self.allocate_confirmation_order();
                     self.states[first_index] = Some(Self::confirmation_state(
@@ -609,8 +645,7 @@ impl HostTxDriver {
             retained: tx::RetainedHostTx,
             slot: u8,
         }
-        let mut published: [Option<PublishedBatchMember>;
-            tx::MAX_ORDINARY_BATCH_DEPTH] =
+        let mut published: [Option<PublishedBatchMember>; tx::MAX_ORDINARY_BATCH_DEPTH] =
             [const { None }; tx::MAX_ORDINARY_BATCH_DEPTH];
         for position in 0..member_count {
             let Some(member) = members[position].take() else {
@@ -629,7 +664,10 @@ impl HostTxDriver {
             } else {
                 tx::BatchPosition::Middle
             };
-            if reservation.publish_in_batch(engine, &mut retained, batch).is_err() {
+            if reservation
+                .publish_in_batch(engine, &mut retained, batch)
+                .is_err()
+            {
                 crate::halt_always!();
             }
             let Some(slot) = plan.slot(position) else {
@@ -667,14 +705,16 @@ impl HostTxDriver {
         order: &[usize],
     ) -> bool {
         let queued = |state: &Option<HostTxState>| match state {
-            Some(HostTxState::Owned { retained, hardware: None })
-                if retained.phase() == tx::HostTxPhase::PasQueued =>
-            {
-                Some(retained.context())
-            }
+            Some(HostTxState::Owned {
+                retained,
+                hardware: None,
+            }) if retained.phase() == tx::HostTxPhase::PasQueued => Some(retained.context()),
             _ => None,
         };
-        let Some((&head, pipe)) = order.first().and_then(|head| Some((head, candidate_pipes[*head]?))) else {
+        let Some((&head, pipe)) = order
+            .first()
+            .and_then(|head| Some((head, candidate_pipes[*head]?)))
+        else {
             return false;
         };
         let Some(head_id) = queued(&self.states[head]) else {
@@ -685,15 +725,23 @@ impl HostTxDriver {
         let Some((stream, first_sequence)) = tx::block_ack_stream(head_id) else {
             return false;
         };
-        let Some(window) = engine.ba.link((stream / 8) as u8).window((stream % 8) as u8) else {
+        let Some(window) = engine
+            .ba
+            .link((stream / 8) as u8)
+            .window((stream % 8) as u8)
+        else {
             return false;
         };
-        if rate < 14 || head_context.flags.get() & 0x400 != 0
-            || crate::mac::low_mac().receive_gate.get() != 0 {
+        if rate < 14
+            || head_context.flags.get() & 0x400 != 0
+            || crate::mac::low_mac().receive_gate.get() != 0
+        {
             return false;
         }
         let window_start = self.window_start_of(stream).unwrap_or(first_sequence);
-        let Some(vif) = crate::vif::vif(interface) else { return false };
+        let Some(vif) = crate::vif::vif(interface) else {
+            return false;
+        };
         let limits = vif.ht_limits((stream / 8) as u8, engine.mpdu_start_spacing);
         let selector = tx::ampdu::spacing_selector(limits.density, rate);
         let budget = tx::aggregate::byte_budget(rate).min(u32::from(limits.max_bytes));
@@ -731,11 +779,16 @@ impl HostTxDriver {
             let _ = tx::start_phy_operation_1();
             self.scheduler_phy_started_this_pass = true;
         }
-        let Ok(slot) = tx::aggregate::publish_aggregate(engine, &ids[..count], pipe, selector) else {
+        let Ok(slot) = tx::aggregate::publish_aggregate(engine, &ids[..count], pipe, selector)
+        else {
             return false;
         };
         for &index in &indices[..count] {
-            if let Some(HostTxState::Owned { mut retained, hardware: None }) = self.states[index].take() {
+            if let Some(HostTxState::Owned {
+                mut retained,
+                hardware: None,
+            }) = self.states[index].take()
+            {
                 retained.mark_scheduled();
                 self.states[index] = Some(HostTxState::Owned {
                     retained,
@@ -786,12 +839,10 @@ impl HostTxDriver {
                         let completion_order = self.allocate_confirmation_order();
                         Self::cancelled_confirmation(retained, completion_order)
                     }
-                    Err((reservation, _)) => {
-                        HostTxState::Reserved {
-                            retained,
-                            reservation,
-                        }
-                    }
+                    Err((reservation, _)) => HostTxState::Reserved {
+                        retained,
+                        reservation,
+                    },
                 }
             }
             HostTxState::Owned {
@@ -800,8 +851,7 @@ impl HostTxDriver {
             } => {
                 if matches!(
                     retained.phase(),
-                    tx::HostTxPhase::PostCryptoQueued
-                        | tx::HostTxPhase::PendingEligible
+                    tx::HostTxPhase::PostCryptoQueued | tx::HostTxPhase::PendingEligible
                 ) {
                     match tx::service_pending(&mut retained) {
                         Ok(tx::PendingServiceReport::Complete(status)) => {
@@ -833,19 +883,15 @@ impl HostTxDriver {
                         let _ = tx::start_phy_operation_1();
                         self.scheduler_phy_started_this_pass = true;
                     }
-                    match {
-                        tx::reserve_non_aggregate_scheduler(&mut retained, engine)
-                    } {
+                    match { tx::reserve_non_aggregate_scheduler(&mut retained, engine) } {
                         Ok(reservation) => {
                             let pipe = reservation.pipe();
                             let slot = reservation.slot();
                             match reservation.publish(engine, &mut retained) {
                                 Ok(()) => {
                                     hardware = Some(HardwareOwner::single(pipe, slot));
-                                    self.states[index] = Some(HostTxState::Owned {
-                                        retained,
-                                        hardware,
-                                    });
+                                    self.states[index] =
+                                        Some(HostTxState::Owned { retained, hardware });
                                 }
                                 Err((reservation, _)) => {
                                     self.states[index] = Some(HostTxState::Reserved {
@@ -857,13 +903,8 @@ impl HostTxDriver {
                             return;
                         }
                         Err(tx::SchedulerReserveError::Expired) => {
-                            if {
-                                tx::reject_unscheduled_pas(&mut retained)
-                            }
-                            .is_ok()
-                            {
-                                let _ =
-                                    retained.transition(tx::HostTxPhase::Completing);
+                            if { tx::reject_unscheduled_pas(&mut retained) }.is_ok() {
+                                let _ = retained.transition(tx::HostTxPhase::Completing);
                                 let completion_order = self.allocate_confirmation_order();
                                 self.states[index] = Some(Self::confirmation_state(
                                     retained,
@@ -878,10 +919,7 @@ impl HostTxDriver {
                     }
                 }
 
-                HostTxState::Owned {
-                    retained,
-                    hardware,
-                }
+                HostTxState::Owned { retained, hardware }
             }
         };
         self.states[index] = Some(next);
@@ -930,7 +968,9 @@ impl HostTxDriver {
     fn confirmation_index(&self) -> Option<usize> {
         indices(self.states.masks().confirming)
             .filter_map(|index| match &self.states[index] {
-                Some(HostTxState::Confirming { completion_order, .. }) => Some((index, *completion_order)),
+                Some(HostTxState::Confirming {
+                    completion_order, ..
+                }) => Some((index, *completion_order)),
                 _ => None,
             })
             .min_by_key(|(_, completion_order)| *completion_order)
@@ -942,10 +982,7 @@ impl HostTxDriver {
     /// no ordering meaning and may wrap independently.
     pub fn confirmation(&self) -> Option<HostTxConfirmation> {
         let index = self.confirmation_index()?;
-        let Some(HostTxState::Confirming {
-            confirmation, ..
-        }) = self.states[index]
-        else {
+        let Some(HostTxState::Confirming { confirmation, .. }) = self.states[index] else {
             return None;
         };
         Some(confirmation)
@@ -1005,10 +1042,7 @@ impl HostTxDriver {
         }
     }
 
-    fn cancelled_confirmation(
-        retained: tx::RetainedHostTx,
-        completion_order: u32,
-    ) -> HostTxState {
+    fn cancelled_confirmation(retained: tx::RetainedHostTx, completion_order: u32) -> HostTxState {
         let context = retained.context();
         let packet_id = retained.packet_id();
         let fields = tx::confirmation_fields(context);

@@ -51,7 +51,9 @@ impl Class0RuntimeOwners {
         if pipe >= 4 {
             return None;
         }
-        Some(core::array::from_fn(|slot| self.slots & 1 << (usize::from(pipe) * 4 + slot) != 0))
+        Some(core::array::from_fn(|slot| {
+            self.slots & 1 << (usize::from(pipe) * 4 + slot) != 0
+        }))
     }
 
     pub fn slot_mask(self) -> u16 {
@@ -64,7 +66,10 @@ impl Class0RuntimeOwners {
         let rotated = (eligible & self.slots).rotate_right(u32::from(cursor & 15));
         (rotated != 0).then(|| {
             let slot_index = cursor.wrapping_add(rotated.trailing_zeros() as u8) & 15;
-            (slot_index, usize::from(self.by_slot[usize::from(slot_index)]))
+            (
+                slot_index,
+                usize::from(self.by_slot[usize::from(slot_index)]),
+            )
         })
     }
 
@@ -97,7 +102,6 @@ pub struct OrdinaryBatchPlan {
 }
 
 impl OrdinaryBatchPlan {
-
     pub const fn len(self) -> usize {
         self.len as usize
     }
@@ -126,7 +130,8 @@ pub fn oldest_pending_context(
     candidates: impl IntoIterator<Item = (usize, u32)>,
     next_order: u32,
 ) -> Option<usize> {
-    candidates.into_iter()
+    candidates
+        .into_iter()
         .max_by_key(|(_, order)| next_order.wrapping_sub(*order))
         .map(|(index, _)| index)
 }
@@ -196,7 +201,11 @@ pub fn plan_ordinary_batch(
 pub const fn rate_try_for_single_rate(rate: u8, ack_failures: u8) -> [u32; 3] {
     let mut rate_try = [0_u32; 3];
     if rate < 24 {
-        let failures = if ack_failures > 0xf { 0xf } else { ack_failures as u32 };
+        let failures = if ack_failures > 0xf {
+            0xf
+        } else {
+            ack_failures as u32
+        };
         rate_try[(rate >> 3) as usize] = failures << ((rate as u32 & 7) * 4);
     }
     rate_try
@@ -227,7 +236,18 @@ mod tests {
     fn ordinary_batch_plan_rejects_occupied_or_stale_ownership() {
         let candidates = [None, Some(1), Some(1)];
         let acked = [false; 3];
-        assert!(plan_ordinary_batch(&candidates, &acked, &[1, 2], [false, true, false, false], 1, 1, 0).is_none());
+        assert!(
+            plan_ordinary_batch(
+                &candidates,
+                &acked,
+                &[1, 2],
+                [false, true, false, false],
+                1,
+                1,
+                0
+            )
+            .is_none()
+        );
         assert!(plan_ordinary_batch(&candidates, &acked, &[1, 2], [false; 4], 1, 4, 0).is_none());
         assert!(plan_ordinary_batch(&candidates, &acked, &[1, 2], [false; 4], 1, 1, 4).is_none());
         assert!(plan_ordinary_batch(&candidates, &acked, &[1, 2], [false; 4], 2, 1, 0).is_none());
@@ -237,14 +257,20 @@ mod tests {
     #[test]
     fn ordinary_batch_plan_requires_the_first_eligible_context() {
         let candidates = [Some(0), Some(1), Some(1)];
-        assert!(plan_ordinary_batch(&candidates, &[false; 3], &[0, 1, 2], [false; 4], 1, 1, 0).is_none());
+        assert!(
+            plan_ordinary_batch(&candidates, &[false; 3], &[0, 1, 2], [false; 4], 1, 1, 0)
+                .is_none()
+        );
     }
 
     #[test]
     fn pending_order_survives_arena_reuse_and_ticket_wrap() {
         let candidates = [(0, 0), (3, u32::MAX - 1), (1, u32::MAX)];
         assert_eq!(oldest_pending_context(candidates, 1), Some(3));
-        assert_eq!(oldest_pending_context(candidates.into_iter().filter(|(i, _)| *i != 3), 1), Some(1));
+        assert_eq!(
+            oldest_pending_context(candidates.into_iter().filter(|(i, _)| *i != 3), 1),
+            Some(1)
+        );
         assert_eq!(oldest_pending_context([(0, 0)], 1), Some(0));
         assert_eq!(oldest_pending_context([], 1), None);
     }
@@ -255,8 +281,14 @@ mod tests {
         let acked = [false; 5];
         let plan = plan_ordinary_batch(&candidates, &acked, &[3, 1, 2, 0, 4], [false; 4], 3, 2, 2)
             .expect("FIFO head need not have the lowest context index");
-        assert_eq!(core::array::from_fn(|i| plan.index(i)), [Some(3), Some(1), Some(0), Some(4)]);
-        assert_eq!(core::array::from_fn(|i| plan.slot(i)), [Some(2), Some(3), Some(0), Some(1)]);
+        assert_eq!(
+            core::array::from_fn(|i| plan.index(i)),
+            [Some(3), Some(1), Some(0), Some(4)]
+        );
+        assert_eq!(
+            core::array::from_fn(|i| plan.slot(i)),
+            [Some(2), Some(3), Some(0), Some(1)]
+        );
         assert!(plan_ordinary_batch(&candidates, &acked, &[3, 3], [false; 4], 3, 2, 2).is_none());
         assert!(plan_ordinary_batch(&candidates, &acked, &[3, 99], [false; 4], 3, 2, 2).is_none());
     }
@@ -265,10 +297,25 @@ mod tests {
     fn frames_expecting_no_response_are_not_batched_with_others() {
         let candidates = [Some(2); 4];
         let indices = |plan: OrdinaryBatchPlan| core::array::from_fn::<_, 4, _>(|i| plan.index(i));
-        let alone = plan_ordinary_batch(&candidates, &[true, false, false, false], &[0, 1, 2, 3], [false; 4], 0, 2, 0);
+        let alone = plan_ordinary_batch(
+            &candidates,
+            &[true, false, false, false],
+            &[0, 1, 2, 3],
+            [false; 4],
+            0,
+            2,
+            0,
+        );
         assert_eq!(alone.map(indices), Some([Some(0), None, None, None]));
-        let ends = plan_ordinary_batch(&candidates, &[false, false, true, false], &[0, 1, 2, 3], [false; 4], 0, 2, 0);
+        let ends = plan_ordinary_batch(
+            &candidates,
+            &[false, false, true, false],
+            &[0, 1, 2, 3],
+            [false; 4],
+            0,
+            2,
+            0,
+        );
         assert_eq!(ends.map(indices), Some([Some(0), Some(1), None, None]));
     }
-
 }

@@ -11,12 +11,12 @@ use core::cell::Cell;
 
 use super::ContextId;
 #[cfg(target_arch = "arm")]
-use super::{
-    ACCESS_CATEGORY_TO_QUEUE, CLASS_HOST, NO_AGGREGATE, QUEUE_TO_ACCESS_CATEGORY, STATUS_PENDING,
-    Protection, SlotImage, contexts, emit_protection_descriptor, pipes,
-};
-#[cfg(target_arch = "arm")]
 use super::hw::{read_u8, read_u16, write_u8, write_u16, write_u32};
+#[cfg(target_arch = "arm")]
+use super::{
+    ACCESS_CATEGORY_TO_QUEUE, CLASS_HOST, NO_AGGREGATE, Protection, QUEUE_TO_ACCESS_CATEGORY,
+    STATUS_PENDING, SlotImage, contexts, emit_protection_descriptor, pipes,
+};
 #[cfg(target_arch = "arm")]
 use crate::packet_ram;
 
@@ -358,7 +358,10 @@ pub const fn stream(link: u8, tid: u8) -> usize {
 
 /// A QoS data frame's stream and sequence number, when its link has a peer.
 pub(crate) fn block_ack_stream(id: ContextId) -> Option<(usize, u16)> {
-    id.get().block_ack.get().map(|(stream, sequence)| (usize::from(stream), sequence))
+    id.get()
+        .block_ack
+        .get()
+        .map(|(stream, sequence)| (usize::from(stream), sequence))
 }
 
 /// Apply ordinary `tx_classify_hdr_len` and assign the vendor per-link/TID
@@ -377,9 +380,7 @@ pub fn classify(retained: &mut RetainedHostTx) -> Result<Option<u8>, HostPrepare
     // peer sees is a complete BlockAckReq (measured: 0 on air at 20 octets, 51 at 24).
     // Extend the retained frame in place and let the classification report the real
     // MPDU length rather than trimming it back to 20.
-    if frame_length >= 20
-        && read_u8(frame_address as usize) & 0xfc == 0x84
-    {
+    if frame_length >= 20 && read_u8(frame_address as usize) & 0xfc == 0x84 {
         let fcs = frame_address as usize + usize::from(frame_length);
         (fcs..fcs + 4).for_each(|address| write_u8(address, 0));
         frame_length += 4;
@@ -398,12 +399,16 @@ pub fn classify(retained: &mut RetainedHostTx) -> Result<Option<u8>, HostPrepare
         assign_sequence_number(retained.context, frame_address, classification.tid);
     }
     let block_ack = block_ack_link(retained.context).zip(qos_sequence(retained.context));
-    context.block_ack.set(block_ack.map(|(link, (tid, sequence))| (stream(link, tid) as u8, sequence)));
+    context
+        .block_ack
+        .set(block_ack.map(|(link, (tid, sequence))| (stream(link, tid) as u8, sequence)));
     let interface = context.interface.get();
     context.frame_control.set(classification.frame_control);
     context.flags.set(classification.flags);
     context.frame_kind.set(0xff);
-    context.duration_slot.set(crate::mac::low_mac().pas(interface).slot_bits.get() & 1);
+    context
+        .duration_slot
+        .set(crate::mac::low_mac().pas(interface).slot_bits.get() & 1);
     retained.phase = HostTxPhase::Classified;
     Ok(classification.assign_sequence.then_some(classification.tid))
 }
@@ -423,8 +428,10 @@ pub fn start_encryption(
     // touches neither the frame nor the context's release until `poll` or
     // `abandon` returns the job.
     unsafe {
-        let frame =
-            core::slice::from_raw_parts_mut(context.frame.get() as *mut u8, usize::from(context.frame_length.get()));
+        let frame = core::slice::from_raw_parts_mut(
+            context.frame.get() as *mut u8,
+            usize::from(context.frame_length.get()),
+        );
         crypto.start_tx(frame, context.interface.get())
     }
     .map_err(HostPrepareError::Crypto)
@@ -433,7 +440,8 @@ pub fn start_encryption(
 /// Time an encrypted (or unprotected) frame for the PAS.
 #[cfg(target_arch = "arm")]
 pub fn finish_preparation(retained: &mut RetainedHostTx) -> Result<(), HostPrepareError> {
-    crate::tx::prepare_single_frame_pas_timing(retained.context.get()).map_err(HostPrepareError::Timing)
+    crate::tx::prepare_single_frame_pas_timing(retained.context.get())
+        .map_err(HostPrepareError::Timing)
 }
 
 /// Sequence number and TID of a retained QoS data frame, read from its header.
@@ -515,7 +523,11 @@ const fn next_index(index: u8) -> u8 {
 impl PasRing {
     #[cfg(test)]
     const fn new() -> Self {
-        Self { head: Cell::new(0), tail: Cell::new(0), entries: [const { Cell::new(None) }; PAS_RING_SIZE] }
+        Self {
+            head: Cell::new(0),
+            tail: Cell::new(0),
+            entries: [const { Cell::new(None) }; PAS_RING_SIZE],
+        }
     }
 
     fn entry(&self, index: u8) -> &Cell<Option<ContextId>> {
@@ -609,7 +621,9 @@ fn claim_pas_accounting() -> bool {
 #[cfg(target_arch = "arm")]
 fn release_pas_accounting() {
     let contexts = contexts();
-    contexts.active_pas.set(contexts.active_pas.get().wrapping_sub(1));
+    contexts
+        .active_pas
+        .set(contexts.active_pas.get().wrapping_sub(1));
 }
 
 #[cfg(target_arch = "arm")]
@@ -639,7 +653,9 @@ pub fn service_pending(
         return match release_pending_to_pas(retained) {
             Ok(()) => Ok(PendingServiceReport::PasQueued),
             Err(PendingServiceError::Timing(_)) => Ok(PendingServiceReport::Complete(10)),
-            Err(_) if submission_expired(retained.context) => Ok(PendingServiceReport::Complete(10)),
+            Err(_) if submission_expired(retained.context) => {
+                Ok(PendingServiceReport::Complete(10))
+            }
             Err(error) => Err(error),
         };
     }
@@ -651,7 +667,12 @@ pub fn service_pending(
     let interface = context.interface.get();
     let link_bit = 1_u16.wrapping_shl(u32::from(context.host_link.get()));
     let now = crate::platform::timer_now();
-    let expired = (context.submit_timer.get().wrapping_sub(now).wrapping_add(0x004c_4b40) as i32) < 0;
+    let expired = (context
+        .submit_timer
+        .get()
+        .wrapping_sub(now)
+        .wrapping_add(0x004c_4b40) as i32)
+        < 0;
 
     let Some(vif) = crate::vif::vif(interface) else {
         return Err(PendingServiceError::WrongPhase);
@@ -824,7 +845,10 @@ impl HostSchedulerReservation {
             return false;
         }
         self.context.get().flags.set(self.original_flags);
-        pipes().pipe(self.pipe).slot(self.slot).restore(self.original_slot);
+        pipes()
+            .pipe(self.pipe)
+            .slot(self.slot)
+            .restore(self.original_slot);
         if let Some((slot, image)) = self.original_prefix {
             pipes().pipe(self.pipe).slot(slot).restore(image);
         }
@@ -841,8 +865,12 @@ impl HostSchedulerReservation {
 pub(crate) fn requeue_at_pas_head(id: ContextId) -> bool {
     let context = id.get();
     // Undo the aggregate's changes; the retry bit marks the retransmission.
-    context.flags.set((context.flags.get() & !(0x20 | 1 << 26)) | 0x10);
-    context.try_count.set(context.try_count.get().wrapping_add(1));
+    context
+        .flags
+        .set((context.flags.get() & !(0x20 | 1 << 26)) | 0x10);
+    context
+        .try_count
+        .set(context.try_count.get().wrapping_add(1));
     if crate::tx::prepare_single_frame_pas_timing(context).is_err() || !claim_pas_accounting() {
         return false;
     }
@@ -884,12 +912,7 @@ pub fn queued_pas_in_order() -> impl Iterator<Item = ContextId> {
 /// descriptor in the same scheduler batch with bit 27 before
 /// `txp_build_pipe_descriptor(..., 0)`.
 const fn scheduler_batch_control_bits(original: u32, staged: u8) -> u32 {
-    original
-        | if staged == 0 {
-            1 << 26
-        } else {
-            0x0800_0000
-        }
+    original | if staged == 0 { 1 << 26 } else { 0x0800_0000 }
 }
 
 /// Select one PAS-ring frame, reserve its mapped idle pipe slot, and emit the
@@ -937,8 +960,11 @@ fn reserve_non_aggregate_scheduler_at(
 
     let id = retained.context;
     let context = id.get();
-    let policy = engine.protection.get(usize::from(context.interface.get()))
-        .copied().unwrap_or(crate::tx::ProtectionPolicy::DISABLED);
+    let policy = engine
+        .protection
+        .get(usize::from(context.interface.get()))
+        .copied()
+        .unwrap_or(crate::tx::ProtectionPolicy::DISABLED);
     crate::tx::apply_protection_policy(id, policy).map_err(SchedulerReserveError::Descriptor)?;
     let pipe = scheduled_pipe(retained);
     let ring_position = PAS_RING.position(id);
@@ -974,7 +1000,11 @@ fn reserve_non_aggregate_scheduler_at(
         return Err(SchedulerReserveError::LeaveQueued);
     }
     let prefix_slot = protected.map(|_| slot);
-    let slot = if protected.is_some() { slot.wrapping_add(1) & 3 } else { slot };
+    let slot = if protected.is_some() {
+        slot.wrapping_add(1) & 3
+    } else {
+        slot
+    };
     let record = pipes().pipe(pipe);
     if record.slot(slot).frame.get().is_some()
         || prefix_slot.is_some_and(|prefix| record.slot(prefix).frame.get().is_some())
@@ -988,12 +1018,20 @@ fn reserve_non_aggregate_scheduler_at(
     let original_flags = context.flags.get();
 
     let original_ring_head = PAS_RING.take(ring_position);
-    context.flags.set(scheduler_batch_control_bits(original_flags, staged)
-        | if protected.is_some_and(|timing| timing.kind == Protection::CtsToSelf) { 1 << 15 } else { 0 });
+    context.flags.set(
+        scheduler_batch_control_bits(original_flags, staged)
+            | if protected.is_some_and(|timing| timing.kind == Protection::CtsToSelf) {
+                1 << 15
+            } else {
+                0
+            },
+    );
     let original_slot = record.slot(slot).reserve(id, context.frame_kind.get());
     let original_prefix = protected.map(|timing| {
         let prefix = prefix_slot.unwrap();
-        let image = record.slot(prefix).reserve(id, timing.kind.expected_status());
+        let image = record
+            .slot(prefix)
+            .reserve(id, timing.kind.expected_status());
         record.slot(prefix).prefix.set(Some(timing.kind));
         (prefix, image)
     });
@@ -1002,7 +1040,10 @@ fn reserve_non_aggregate_scheduler_at(
     write_u32(command as usize + 8, 0xdc00_0000);
     let emitted = crate::tx::emit_descriptor(context, command + 0x0c).and_then(|_| {
         if let Some(prefix) = prefix_slot {
-            emit_protection_descriptor(context, packet_ram::tx_command(usize::from(pipe), usize::from(prefix)) as u32)?;
+            emit_protection_descriptor(
+                context,
+                packet_ram::tx_command(usize::from(pipe), usize::from(prefix)) as u32,
+            )?;
         }
         Ok(())
     });
@@ -1010,7 +1051,9 @@ fn reserve_non_aggregate_scheduler_at(
         PAS_RING.restore(id, ring_position, original_ring_head);
         context.flags.set(original_flags);
         record.slot(slot).restore(original_slot);
-        if let Some((prefix, image)) = original_prefix { record.slot(prefix).restore(image); }
+        if let Some((prefix, image)) = original_prefix {
+            record.slot(prefix).restore(image);
+        }
         return Err(SchedulerReserveError::Descriptor(error));
     }
     retained.phase = HostTxPhase::SchedulerReserved;
@@ -1073,21 +1116,35 @@ pub fn admit_host_tx(
     let context = id.get();
     let flags = 0x0080_0000
         | ((request.ht_tx_parameters >> 11) & 0xe0)
-        | if request.flags & 1 != 0 { 0x0001_0000 } else { 0 }
-        | if request.ht_tx_parameters & 3 == 1 { 8 } else { 0 };
+        | if request.flags & 1 != 0 {
+            0x0001_0000
+        } else {
+            0
+        }
+        | if request.ht_tx_parameters & 3 == 1 {
+            8
+        } else {
+            0
+        };
     context.class.set(CLASS_HOST);
     context.frame.set(request.frame.as_ptr() as u32);
-    context.frame_length.set(request.frame.len().min(u16::MAX as usize) as u16);
+    context
+        .frame_length
+        .set(request.frame.len().min(u16::MAX as usize) as u16);
     context.interface.set(interface);
     // The WSM header's link: the station a frame of an access point is for.
     context.host_link.set(link);
     context.block_ack.set(None);
     context.protection.set(None);
     context.erp_protection.set(false);
-    context.access_category.set(QUEUE_TO_ACCESS_CATEGORY[usize::from(request.queue_id & 3)]);
+    context
+        .access_category
+        .set(QUEUE_TO_ACCESS_CATEGORY[usize::from(request.queue_id & 3)]);
     context.tx_rate.set(station_data_rate(request.max_tx_rate));
     context.retry_policy.set((request.flags & 0x7f) >> 4);
-    context.request_flag_rate_bits.set((request.flags & 0x0f) >> 1);
+    context
+        .request_flag_rate_bits
+        .set((request.flags & 0x0f) >> 1);
     context.flags.set(flags);
     context.submit_timer.set(crate::platform::timer_now());
     context.try_count.set(0);
@@ -1311,9 +1368,18 @@ mod tests {
     #[test]
     fn ordinary_batch_marks_first_and_later_descriptors_differently() {
         let original = 0x0000_1234;
-        assert_eq!(scheduler_batch_control_bits(original, 0), original | 0x0400_0000);
-        assert_eq!(scheduler_batch_control_bits(original, 1), original | 0x0800_0000);
-        assert_eq!(scheduler_batch_control_bits(original, 3), original | 0x0800_0000);
+        assert_eq!(
+            scheduler_batch_control_bits(original, 0),
+            original | 0x0400_0000
+        );
+        assert_eq!(
+            scheduler_batch_control_bits(original, 1),
+            original | 0x0800_0000
+        );
+        assert_eq!(
+            scheduler_batch_control_bits(original, 3),
+            original | 0x0800_0000
+        );
     }
 
     #[test]
@@ -1324,21 +1390,36 @@ mod tests {
             vif_operating: false,
             expired: false,
         };
-        assert_eq!(pending_task_decision(base), PendingTaskDecision::LeaveQueued);
         assert_eq!(
-            pending_task_decision(PendingTaskInput { active_link: false, ..base }),
+            pending_task_decision(base),
+            PendingTaskDecision::LeaveQueued
+        );
+        assert_eq!(
+            pending_task_decision(PendingTaskInput {
+                active_link: false,
+                ..base
+            }),
             PendingTaskDecision::Complete(0x14)
         );
         assert_eq!(
-            pending_task_decision(PendingTaskInput { vif_operating: true, ..base }),
+            pending_task_decision(PendingTaskInput {
+                vif_operating: true,
+                ..base
+            }),
             PendingTaskDecision::ReleaseToPas
         );
         assert_eq!(
-            pending_task_decision(PendingTaskInput { link_gate_requests_removal: true, ..base }),
+            pending_task_decision(PendingTaskInput {
+                link_gate_requests_removal: true,
+                ..base
+            }),
             PendingTaskDecision::ReleaseToPas
         );
         assert_eq!(
-            pending_task_decision(PendingTaskInput { expired: true, ..base }),
+            pending_task_decision(PendingTaskInput {
+                expired: true,
+                ..base
+            }),
             PendingTaskDecision::Complete(10)
         );
     }

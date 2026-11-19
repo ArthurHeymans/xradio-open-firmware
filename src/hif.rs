@@ -217,7 +217,11 @@ struct ReturnedRx {
 
 impl ReturnedRx {
     const fn new() -> Self {
-        Self { tokens: [const { None }; 64], head: 0, len: 0 }
+        Self {
+            tokens: [const { None }; 64],
+            head: 0,
+            len: 0,
+        }
     }
 
     fn push(&mut self, token: RxToken) {
@@ -319,9 +323,9 @@ unsafe fn next_emergency_sequence() -> u16 {
 }
 
 fn publish_emergency_descriptor(shared: &HifShared, length: u16) {
-    shared.emergency_address.set(unsafe {
-        known_dma_bus_address(packet_ram::hif_output(0))
-    });
+    shared
+        .emergency_address
+        .set(unsafe { known_dma_bus_address(packet_ram::hif_output(0)) });
     shared
         .emergency_control
         .set(u32::from(length).wrapping_add(1).wrapping_rem(1 << 13) | 1);
@@ -401,7 +405,10 @@ impl Transport {
     /// Changes whenever a descriptor or shared buffer moves.
     pub fn activity(&self, activity: crate::activity::Activity) -> crate::activity::Activity {
         let state = &*self.state;
-        let slots = self.shared_slots_in_use.iter().fold(0, |bits, used| bits << 1 | u32::from(*used));
+        let slots = self
+            .shared_slots_in_use
+            .iter()
+            .fold(0, |bits, used| bits << 1 | u32::from(*used));
         activity
             .with(state.tx_queued)
             .with(state.tx_reclaimed)
@@ -612,7 +619,8 @@ impl Transport {
     /// Free firmware-to-host descriptors.
     pub fn spare_publications(&mut self) -> u32 {
         self.reclaim_tx();
-        OUTPUT_QUEUE_DEPTH.saturating_sub(self.state.tx_queued.wrapping_sub(self.state.tx_reclaimed))
+        OUTPUT_QUEUE_DEPTH
+            .saturating_sub(self.state.tx_queued.wrapping_sub(self.state.tx_reclaimed))
     }
 
     /// Command replies that could still be published: each needs a
@@ -620,13 +628,16 @@ impl Transport {
     pub fn spare_responses(&mut self) -> u32 {
         // Reclaim first: it frees shared buffers as well as descriptors.
         self.reclaim_tx();
-        let free_slots = self.shared_slots_in_use.iter().filter(|used| !**used).count() as u32;
+        let free_slots = self
+            .shared_slots_in_use
+            .iter()
+            .filter(|used| !**used)
+            .count() as u32;
         self.spare_publications().min(free_slots)
     }
 
     pub fn output_available(&mut self) -> bool {
-        self.publication_available()
-            && self.shared_slots_in_use.iter().any(|in_use| !in_use)
+        self.publication_available() && self.shared_slots_in_use.iter().any(|in_use| !in_use)
     }
 
     /// Fill a free 384-byte output buffer and publish it: `fill` returns the
@@ -641,7 +652,8 @@ impl Transport {
         let address = packet_ram::hif_output(slot);
         // SAFETY: a free shared buffer: no descriptor references it until it
         // is published below, and the borrow ends with `fill`.
-        let buffer = unsafe { core::slice::from_raw_parts_mut(address as *mut u8, SHARED_BUFFER_SIZE) };
+        let buffer =
+            unsafe { core::slice::from_raw_parts_mut(address as *mut u8, SHARED_BUFFER_SIZE) };
         let Some(length) = fill(buffer).filter(|&length| length <= SHARED_BUFFER_SIZE) else {
             return false;
         };
@@ -666,8 +678,7 @@ impl Transport {
         self.queues.rx_released = self.queues.rx_released.wrapping_add(1);
         let producer = self.state.rx_producer;
         let producer_slot = (producer & 31) as usize;
-        let producer_descriptor =
-            &rx_shared().descriptors[producer_slot];
+        let producer_descriptor = &rx_shared().descriptors[producer_slot];
         self.queues.rx_buffers[producer_slot] = buffer_address as u32;
         producer_descriptor.address.set(bus_address);
         producer_descriptor
@@ -855,7 +866,6 @@ impl Transport {
         self.stage_next_tx();
         drain_write_buffer();
     }
-
 
     /// Publishes a response for the original request while preserving logical
     /// request identity. The bytes use independent output storage because this

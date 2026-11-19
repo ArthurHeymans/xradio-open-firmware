@@ -515,17 +515,23 @@ fn channel_control_matches_vendor_scan_mode() {
     // estimate is range-checked (an out-of-range estimate is zeroed).
     let mut edge = DynamicIqSearchState::new([0, -300, 0, 0], 0x100, 0x100, 0x100);
     let mut probes = [[0; 4]; 13];
-    assert!(run_dynamic_iq_search_pass(&mut edge, false, |stage, candidate, _| {
-        probes[usize::from(stage)] = candidate;
-        Some(DynamicIqDftResult::default())
-    }));
+    assert!(run_dynamic_iq_search_pass(
+        &mut edge,
+        false,
+        |stage, candidate, _| {
+            probes[usize::from(stage)] = candidate;
+            Some(DynamicIqDftResult::default())
+        }
+    ));
     // Stage 8 programs the probe stage 7 chose: -300 - 0x100.
     assert_eq!(probes[8][1], -556);
     assert_eq!(edge.current[1], -300);
     let mut outside = DynamicIqSearchState::new([0, -600, 0, 0], 1, 1, 1);
-    assert!(run_dynamic_iq_search_pass(&mut outside, false, |_, _, _| {
-        Some(DynamicIqDftResult::default())
-    }));
+    assert!(run_dynamic_iq_search_pass(
+        &mut outside,
+        false,
+        |_, _, _| { Some(DynamicIqDftResult::default()) }
+    ));
     assert_eq!(outside.current[1], 0);
 
     assert_eq!(dynamic_iq_search_pass_count(3, 0), 3);

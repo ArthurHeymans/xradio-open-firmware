@@ -18,7 +18,6 @@ impl PreparedProbe {
     pub fn bytes(&self) -> &[u8] {
         &self.bytes[..self.length]
     }
-
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -87,7 +86,9 @@ impl PreparedProbePublication {
         // Vendor queue accounting counts the context before hardware
         // ownership; the completion drain performs the matching decrement.
         let contexts = contexts();
-        contexts.active_pas.set(contexts.active_pas.get().wrapping_add(1));
+        contexts
+            .active_pas
+            .set(contexts.active_pas.get().wrapping_add(1));
         execute_single_probe_publication(
             &mut Mmio,
             pipes,
@@ -127,7 +128,9 @@ pub fn prepare_probe_context(
         return Err(ProbeBuildError::FrameTooLarge);
     }
     let contexts = contexts();
-    let id = contexts.allocate_internal().ok_or(ProbeBuildError::ContextPoolEmpty)?;
+    let id = contexts
+        .allocate_internal()
+        .ok_or(ProbeBuildError::ContextPoolEmpty)?;
     let context = id.get();
     let frame = TxFrameAddress::new(context.frame.get());
     copy_to_packet_ram(frame.raw(), probe.bytes());
@@ -141,7 +144,10 @@ pub fn prepare_probe_context(
             contexts.free(id);
             return Err(ProbeBuildError::InvalidContextPointer);
         };
-        write_u16(frame.address_2_halfword_unchecked(word as u32) as usize, value);
+        write_u16(
+            frame.address_2_halfword_unchecked(word as u32) as usize,
+            value,
+        );
     }
 
     // Ordinary foreground scans store explicit rate 0xff, after which
@@ -163,7 +169,9 @@ pub fn prepare_probe_context(
 
     context.class.set(CLASS_INTERNAL);
     context.frame_length.set(probe.length as u16);
-    context.frame_control.set(read_u16(frame.frame_control() as usize));
+    context
+        .frame_control
+        .set(read_u16(frame.frame_control() as usize));
     context.interface.set(if_id);
     context.host_link.set(0x0f);
     // Vendor sources the AC from a ROM-owned pointer; the mapped AC of queue
@@ -173,7 +181,9 @@ pub fn prepare_probe_context(
     context.retry_policy.set(0x0f);
     context.request_flag_rate_bits.set(0);
     context.flags.set(flags);
-    context.duration_slot.set(crate::mac::low_mac().pas(if_id).slot_bits.get() & 1);
+    context
+        .duration_slot
+        .set(crate::mac::low_mac().pas(if_id).slot_bits.get() & 1);
     context.try_count.set(0);
     context.auxiliary_state.set(0);
     if let Err(error) = prepare_single_frame_pas_timing(context) {
@@ -204,7 +214,8 @@ pub(crate) fn prepare_context_publication(
     id: ContextId,
 ) -> Result<PreparedProbePublication, ProbeBuildError> {
     let context = id.get();
-    let Some(&pipe) = ACCESS_CATEGORY_TO_QUEUE.get(usize::from(context.access_category.get())) else {
+    let Some(&pipe) = ACCESS_CATEGORY_TO_QUEUE.get(usize::from(context.access_category.get()))
+    else {
         contexts().free(id);
         return Err(ProbeBuildError::PipeStateUnavailable);
     };
@@ -214,9 +225,10 @@ pub(crate) fn prepare_context_publication(
         return Err(ProbeBuildError::PipeStateUnavailable);
     }
     let slot = record.producer.get() & 3;
-    let command = TxDescriptorAddress::new(
-        packet_ram::tx_command(usize::from(pipe), usize::from(slot)) as u32,
-    );
+    let command = TxDescriptorAddress::new(packet_ram::tx_command(
+        usize::from(pipe),
+        usize::from(slot),
+    ) as u32);
     // `0xa712` stores the frame's response class in the slot; success handler
     // `0x9cdc` requires it to be `0xff` for a frame expecting no response
     // before entering the release loop.
@@ -273,7 +285,8 @@ fn load_protected_host_frame(
     let context = id.get();
     // SAFETY: the context was just taken for this frame and owns its
     // packet-RAM buffer; nothing else touches it until it is published.
-    let loaded = unsafe { core::slice::from_raw_parts_mut(context.frame.get() as *mut u8, frame.len()) };
+    let loaded =
+        unsafe { core::slice::from_raw_parts_mut(context.frame.get() as *mut u8, frame.len()) };
     if crypto.encrypt_now(loaded, if_id).is_err() {
         contexts().free(id);
         return Err(ProbeBuildError::CryptoFailure);
@@ -288,8 +301,12 @@ fn apply_host_request(context: &TxContext, request: &crate::wsm::TxRequest<'_>, 
     // The AC is selected through the four-entry WSM queue map, not the raw
     // WSM queue id. The WSM TX flags carry the PTA priority and the
     // retry-policy selector.
-    context.access_category.set(QUEUE_TO_ACCESS_CATEGORY[usize::from(request.queue_id & 3)]);
-    context.request_flag_rate_bits.set((request.flags & 0x0f) >> 1);
+    context
+        .access_category
+        .set(QUEUE_TO_ACCESS_CATEGORY[usize::from(request.queue_id & 3)]);
+    context
+        .request_flag_rate_bits
+        .set((request.flags & 0x0f) >> 1);
     context.retry_policy.set((request.flags & 0x7f) >> 4);
     // These frames use an internal context rather than the WSM class-0 pool;
     // link slot 1 is the validated internal slot for them.
@@ -477,8 +494,7 @@ pub fn service_active_probe(
         });
     }
     if let Some(published) = runtime.published {
-        let Some(completion) =
-            service_single_probe_runtime(&mut runtime.backend, max_events)
+        let Some(completion) = service_single_probe_runtime(&mut runtime.backend, max_events)
         else {
             runtime.diagnostic = 0x2000;
             return ActiveProbeReport::Servicing;
@@ -593,8 +609,7 @@ pub fn service_host_management_tx(
                 error: ProbeBuildError::PipeSlotBusy,
             };
         }
-        let Some(completion) =
-            service_single_probe_runtime(&mut runtime.backend, max_events)
+        let Some(completion) = service_single_probe_runtime(&mut runtime.backend, max_events)
         else {
             return HostManagementTxReport::Servicing;
         };
@@ -630,15 +645,16 @@ pub fn service_host_management_tx(
             error: ProbeBuildError::PipeSlotBusy,
         };
     }
-    let prepared = match prepare_host_management_publication(&mut engine.scratch, crypto, request, if_id) {
-        Ok(prepared) => prepared,
-        Err(error) => {
-            return HostManagementTxReport::Failed {
-                packet_id: request.packet_id,
-                error,
-            };
-        }
-    };
+    let prepared =
+        match prepare_host_management_publication(&mut engine.scratch, crypto, request, if_id) {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                return HostManagementTxReport::Failed {
+                    packet_id: request.packet_id,
+                    error,
+                };
+            }
+        };
     let published = match prepared.publish(&mut runtime.backend) {
         Ok(published) => published,
         Err(error) => {
@@ -659,7 +675,12 @@ pub fn service_host_management_tx(
 /// Tell the AP a station sleeps (`pm`) or is awake, with a null-data frame
 /// at the lowest basic rate.
 #[cfg(target_arch = "arm")]
-pub fn publish_power_save_null(engine: &mut TxEngine, crypto: &mut crate::crypto::Crypto, if_id: u8, pm: bool) -> bool {
+pub fn publish_power_save_null(
+    engine: &mut TxEngine,
+    crypto: &mut crate::crypto::Crypto,
+    if_id: u8,
+    pm: bool,
+) -> bool {
     use core::cell::Cell;
     let Some(vif) = crate::vif::vif(if_id) else {
         return false;
@@ -680,7 +701,12 @@ pub fn publish_power_save_null(engine: &mut TxEngine, crypto: &mut crate::crypto
         frame: &frame,
     };
     matches!(
-        service_host_management_tx(engine, crypto, Some((&request, if_id, ManagementOwner::PowerSave)), 0),
+        service_host_management_tx(
+            engine,
+            crypto,
+            Some((&request, if_id, ManagementOwner::PowerSave)),
+            0
+        ),
         HostManagementTxReport::Published { .. }
     )
 }
@@ -718,7 +744,13 @@ pub fn publish_block_ack_frame(
             bytes[..20].copy_from_slice(&ba::block_ack_request(recipient, own, tid, ssn));
             (20, [0, 1, 1, 0, 2, 2, 3, 3][usize::from(tid & 7)])
         }
-        ba::Outgoing::AddbaResponse { peer: requester, tid, token, status, window } => {
+        ba::Outgoing::AddbaResponse {
+            peer: requester,
+            tid,
+            token,
+            status,
+            window,
+        } => {
             bytes = ba::addba_response(requester, own, bssid, token, status, tid, window);
             (bytes.len(), 3)
         }
@@ -727,7 +759,9 @@ pub fn publish_block_ack_frame(
     // is answered at that rate: about 80 us on air instead of 850 us at the
     // 1 Mbit/s management rate.
     let rate = match frame {
-        ba::Outgoing::AddbaRequest { .. } | ba::Outgoing::AddbaResponse { .. } => vif.rate_bytes[4].get(),
+        ba::Outgoing::AddbaRequest { .. } | ba::Outgoing::AddbaResponse { .. } => {
+            vif.rate_bytes[4].get()
+        }
         ba::Outgoing::BlockAckRequest { .. } => BLOCK_ACK_REQUEST_RATE,
     };
     let request = crate::wsm::TxRequest {
@@ -741,7 +775,12 @@ pub fn publish_block_ack_frame(
         frame: &bytes[..length],
     };
     matches!(
-        service_host_management_tx(engine, crypto, Some((&request, if_id, ManagementOwner::BlockAck)), 0),
+        service_host_management_tx(
+            engine,
+            crypto,
+            Some((&request, if_id, ManagementOwner::BlockAck)),
+            0
+        ),
         HostManagementTxReport::Published { .. }
     )
 }

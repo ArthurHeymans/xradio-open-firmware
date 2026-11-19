@@ -31,8 +31,14 @@ const ACTION_DELBA: u8 = 2;
 pub enum Session {
     Idle,
     /// An ADDBA request is queued (`sent_at` is `None`) or awaiting its response.
-    Requested { token: u8, attempts: u8, sent_at: Option<u32> },
-    Established { window: u16 },
+    Requested {
+        token: u8,
+        attempts: u8,
+        sent_at: Option<u32>,
+    },
+    Established {
+        window: u16,
+    },
     /// Refused or never answered; not retried before the next join.
     Refused,
 }
@@ -40,11 +46,23 @@ pub enum Session {
 /// A frame the firmware wants on air.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Outgoing {
-    AddbaRequest { tid: u8, token: u8 },
-    BlockAckRequest { tid: u8, ssn: u16 },
+    AddbaRequest {
+        tid: u8,
+        token: u8,
+    },
+    BlockAckRequest {
+        tid: u8,
+        ssn: u16,
+    },
     /// Our answer to `peer`'s ADDBA request (see `rx_ba`); a window of 0
     /// with a failure status declines it.
-    AddbaResponse { peer: [u8; 6], tid: u8, token: u8, status: u16, window: u16 },
+    AddbaResponse {
+        peer: [u8; 6],
+        tid: u8,
+        token: u8,
+        status: u16,
+        window: u16,
+    },
 }
 
 impl Outgoing {
@@ -60,11 +78,22 @@ impl Outgoing {
 /// What a received frame means for our sessions.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Received {
-    AddbaResponse { token: u8, status: u16, tid: u8, buffer_size: u16 },
+    AddbaResponse {
+        token: u8,
+        status: u16,
+        tid: u8,
+        buffer_size: u16,
+    },
     /// The recipient tore down our session.
     Delba { tid: u8 },
     /// The peer wants to send us aggregates.
-    AddbaRequest { token: u8, tid: u8, immediate: bool, buffer_size: u16, ssn: u16 },
+    AddbaRequest {
+        token: u8,
+        tid: u8,
+        immediate: bool,
+        buffer_size: u16,
+        ssn: u16,
+    },
     /// The peer ended its session to us.
     PeerDelba { tid: u8 },
 }
@@ -83,7 +112,9 @@ impl Default for PeerSessions {
 
 impl PeerSessions {
     pub const fn new() -> Self {
-        Self { links: [const { BlockAckSessions::new() }; crate::vif::LINKS] }
+        Self {
+            links: [const { BlockAckSessions::new() }; crate::vif::LINKS],
+        }
     }
 
     /// The sessions with the peer on `link`.
@@ -101,7 +132,9 @@ impl PeerSessions {
 
     /// The next frame to send and its peer's link.
     pub fn outgoing(&self, now: u32) -> Option<(u8, Outgoing)> {
-        (0..).zip(&self.links).find_map(|(link, sessions)| Some((link, sessions.outgoing(now)?)))
+        (0..)
+            .zip(&self.links)
+            .find_map(|(link, sessions)| Some((link, sessions.outgoing(now)?)))
     }
 
     /// The frame in flight completed at `now`.
@@ -139,13 +172,17 @@ impl BlockAckSessions {
 
     /// Forget every session; the association they belonged to is gone.
     pub fn reset(&self) {
-        self.sessions.iter().for_each(|session| session.set(Session::Idle));
+        self.sessions
+            .iter()
+            .for_each(|session| session.set(Session::Idle));
         self.in_flight.set(None);
         self.bar.iter().for_each(|bar| bar.set(None));
     }
 
     pub fn session(&self, tid: u8) -> Session {
-        self.sessions.get(usize::from(tid)).map_or(Session::Refused, Cell::get)
+        self.sessions
+            .get(usize::from(tid))
+            .map_or(Session::Refused, Cell::get)
     }
 
     /// Window of an established session.
@@ -165,7 +202,11 @@ impl BlockAckSessions {
         if self.session(tid) == Session::Idle {
             let token = self.next_token.get();
             self.next_token.set(token.wrapping_add(1).max(1));
-            self.sessions[usize::from(tid)].set(Session::Requested { token, attempts: 0, sent_at: None });
+            self.sessions[usize::from(tid)].set(Session::Requested {
+                token,
+                attempts: 0,
+                sent_at: None,
+            });
         }
     }
 
@@ -175,9 +216,13 @@ impl BlockAckSessions {
         self.sessions
             .iter()
             .filter_map(|session| match session.get() {
-                Session::Requested { sent_at: Some(sent_at), .. } => {
-                    Some(crate::deadline::until(sent_at.wrapping_add(RESPONSE_TIMEOUT_US), now))
-                }
+                Session::Requested {
+                    sent_at: Some(sent_at),
+                    ..
+                } => Some(crate::deadline::until(
+                    sent_at.wrapping_add(RESPONSE_TIMEOUT_US),
+                    now,
+                )),
                 _ => None,
             })
             .min()
@@ -187,26 +232,38 @@ impl BlockAckSessions {
     /// abandons requests whose response did not arrive in time.
     pub fn outgoing(&self, now: u32) -> Option<Outgoing> {
         for session in &self.sessions {
-            if let Session::Requested { token, attempts, sent_at: Some(sent_at) } = session.get()
+            if let Session::Requested {
+                token,
+                attempts,
+                sent_at: Some(sent_at),
+            } = session.get()
                 && now.wrapping_sub(sent_at) >= RESPONSE_TIMEOUT_US
             {
                 session.set(if attempts >= ATTEMPTS {
                     Session::Refused
                 } else {
-                    Session::Requested { token, attempts, sent_at: None }
+                    Session::Requested {
+                        token,
+                        attempts,
+                        sent_at: None,
+                    }
                 });
             }
         }
-        let bar = (0..).zip(&self.bar).find_map(|(tid, bar)| {
-            bar.get().map(|ssn| Outgoing::BlockAckRequest { tid, ssn })
-        });
+        let bar = (0..)
+            .zip(&self.bar)
+            .find_map(|(tid, bar)| bar.get().map(|ssn| Outgoing::BlockAckRequest { tid, ssn }));
         bar.or_else(|| {
-            (0..).zip(&self.sessions).find_map(|(tid, session)| match session.get() {
-                Session::Requested { token, sent_at: None, .. } => {
-                    Some(Outgoing::AddbaRequest { tid, token })
-                }
-                _ => None,
-            })
+            (0..)
+                .zip(&self.sessions)
+                .find_map(|(tid, session)| match session.get() {
+                    Session::Requested {
+                        token,
+                        sent_at: None,
+                        ..
+                    } => Some(Outgoing::AddbaRequest { tid, token }),
+                    _ => None,
+                })
         })
     }
 
@@ -226,7 +283,11 @@ impl BlockAckSessions {
     pub fn sent(&self, frame: Outgoing, now: u32) {
         match frame {
             Outgoing::AddbaRequest { tid, token } => {
-                if let Session::Requested { token: pending, attempts, sent_at: None } = self.session(tid)
+                if let Session::Requested {
+                    token: pending,
+                    attempts,
+                    sent_at: None,
+                } = self.session(tid)
                     && pending == token
                 {
                     self.sessions[usize::from(tid)].set(Session::Requested {
@@ -250,13 +311,22 @@ impl BlockAckSessions {
     /// `rx_ba`'s.
     pub fn on_received(&self, frame: Received) {
         match frame {
-            Received::AddbaResponse { token, status, tid, buffer_size } => {
+            Received::AddbaResponse {
+                token,
+                status,
+                tid,
+                buffer_size,
+            } => {
                 if let Session::Requested { token: pending, .. } = self.session(tid)
                     && pending == token
                 {
                     self.sessions[usize::from(tid)].set(if status == 0 {
                         // A zero buffer size lets the originator pick.
-                        let window = if buffer_size == 0 { WINDOW } else { buffer_size.min(WINDOW) };
+                        let window = if buffer_size == 0 {
+                            WINDOW
+                        } else {
+                            buffer_size.min(WINDOW)
+                        };
                         Session::Established { window }
                     } else {
                         Session::Refused
@@ -275,7 +345,9 @@ impl BlockAckSessions {
 
     /// A BlockAckReq for `tid` waits to be sent or is on its way.
     pub fn bar_pending(&self, tid: u8) -> bool {
-        self.bar.get(usize::from(tid)).is_some_and(|bar| bar.get().is_some())
+        self.bar
+            .get(usize::from(tid))
+            .is_some_and(|bar| bar.get().is_some())
     }
 
     /// A frame with sequence number `sequence` of `tid` gave up. Within a
@@ -285,7 +357,9 @@ impl BlockAckSessions {
             let ssn = sequence.wrapping_add(1) & 0x0fff;
             let bar = &self.bar[usize::from(tid)];
             // Keep the later start: it also releases the earlier hole.
-            let later = bar.get().is_none_or(|pending| ssn.wrapping_sub(pending) & 0x0fff < 0x0800);
+            let later = bar
+                .get()
+                .is_none_or(|pending| ssn.wrapping_sub(pending) & 0x0fff < 0x0800);
             if later {
                 bar.set(Some(ssn));
             }
@@ -370,7 +444,12 @@ pub fn parse(frame: &[u8], own: [u8; 6], peer: [u8; 6]) -> Option<Received> {
     {
         return None;
     }
-    let u16_at = |offset: usize| Some(u16::from_le_bytes([*frame.get(offset)?, *frame.get(offset + 1)?]));
+    let u16_at = |offset: usize| {
+        Some(u16::from_le_bytes([
+            *frame.get(offset)?,
+            *frame.get(offset + 1)?,
+        ]))
+    };
     match *frame.get(25)? {
         ACTION_ADDBA_RESPONSE => {
             let parameters = u16_at(29)?;
@@ -396,7 +475,11 @@ pub fn parse(frame: &[u8], own: [u8; 6], peer: [u8; 6]) -> Option<Received> {
             let tid = (parameters >> 12) as u8;
             // Initiator clear: the sender is the recipient, so the session
             // is our TX session; set: it is the peer's session to us.
-            Some(if parameters & (1 << 11) == 0 { Received::Delba { tid } } else { Received::PeerDelba { tid } })
+            Some(if parameters & (1 << 11) == 0 {
+                Received::Delba { tid }
+            } else {
+                Received::PeerDelba { tid }
+            })
         }
         _ => None,
     }
@@ -432,15 +515,32 @@ mod tests {
         let response = action(1, &[1, 0, 0, 0x03, 0x04, 0, 0]);
         assert_eq!(
             parse(&response, OWN, PEER),
-            Some(Received::AddbaResponse { token: 1, status: 0, tid: 0, buffer_size: 16 })
+            Some(Received::AddbaResponse {
+                token: 1,
+                status: 0,
+                tid: 0,
+                buffer_size: 16
+            })
         );
         // The AP's DELBA for its own session (initiator set) ends our RX session.
-        assert_eq!(parse(&action(2, &[0x00, 0x78, 0x25, 0]), OWN, PEER), Some(Received::PeerDelba { tid: 7 }));
-        assert_eq!(parse(&action(2, &[0x00, 0x50, 0x25, 0]), OWN, PEER), Some(Received::Delba { tid: 5 }));
+        assert_eq!(
+            parse(&action(2, &[0x00, 0x78, 0x25, 0]), OWN, PEER),
+            Some(Received::PeerDelba { tid: 7 })
+        );
+        assert_eq!(
+            parse(&action(2, &[0x00, 0x50, 0x25, 0]), OWN, PEER),
+            Some(Received::Delba { tid: 5 })
+        );
         // The AP's own request: A-MSDU and immediate policy, TID 0, window 64, SSN 20.
         assert_eq!(
             parse(&action(0, &[1, 0x03, 0x10, 0, 0, 0x40, 0x01]), OWN, PEER),
-            Some(Received::AddbaRequest { token: 1, tid: 0, immediate: true, buffer_size: 64, ssn: 20 })
+            Some(Received::AddbaRequest {
+                token: 1,
+                tid: 0,
+                immediate: true,
+                buffer_size: 64,
+                ssn: 20
+            })
         );
         let answer = addba_response(PEER, OWN, PEER, 1, 0, 0, 16);
         assert_eq!(&answer[24..], &[3, 1, 1, 0, 0, 0x02, 0x04, 0, 0]);
@@ -455,7 +555,9 @@ mod tests {
         assert_eq!(sessions.session(0), Session::Idle, "TID 0 not allowed");
         sessions.on_qos_data(1, 0x3f);
         let request = sessions.outgoing(0).unwrap();
-        let Outgoing::AddbaRequest { tid: 1, .. } = request else { panic!("{request:?}") };
+        let Outgoing::AddbaRequest { tid: 1, .. } = request else {
+            panic!("{request:?}")
+        };
         sessions.sent(request, 10);
         assert_eq!(sessions.outgoing(20), None);
 
@@ -470,12 +572,24 @@ mod tests {
         sessions.reset();
         sessions.on_qos_data(1, 0xff);
         let request = sessions.outgoing(0).unwrap();
-        let Outgoing::AddbaRequest { token, .. } = request else { panic!() };
+        let Outgoing::AddbaRequest { token, .. } = request else {
+            panic!()
+        };
         sessions.sent(request, 0);
         // A stale token is ignored; the matching one establishes, window capped at ours.
-        sessions.on_received(Received::AddbaResponse { token: token + 1, status: 0, tid: 1, buffer_size: 64 });
+        sessions.on_received(Received::AddbaResponse {
+            token: token + 1,
+            status: 0,
+            tid: 1,
+            buffer_size: 64,
+        });
         assert!(matches!(sessions.session(1), Session::Requested { .. }));
-        sessions.on_received(Received::AddbaResponse { token, status: 0, tid: 1, buffer_size: 64 });
+        sessions.on_received(Received::AddbaResponse {
+            token,
+            status: 0,
+            tid: 1,
+            buffer_size: 64,
+        });
         assert_eq!(sessions.window(1), Some(WINDOW));
 
         // Give-ups queue the later BlockAckReq; the recipient's DELBA ends it all.
@@ -488,6 +602,9 @@ mod tests {
         assert_eq!(sessions.outgoing(0), None);
         sessions.on_given_up(1, 7);
         sessions.on_received(Received::Delba { tid: 1 });
-        assert_eq!((sessions.session(1), sessions.outgoing(0)), (Session::Idle, None));
+        assert_eq!(
+            (sessions.session(1), sessions.outgoing(0)),
+            (Session::Idle, None)
+        );
     }
 }

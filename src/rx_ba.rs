@@ -35,7 +35,10 @@ struct Session<T> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Addba {
     /// Program receive pipe `slot` for the session.
-    Accepted { slot: usize, window: u16 },
+    Accepted {
+        slot: usize,
+        window: u16,
+    },
     Declined,
     /// No reply storage. Leave any existing agreement alone; the peer can retry.
     Busy,
@@ -80,9 +83,11 @@ impl<T> RxBlockAck<T> {
     }
 
     fn slot_of(&self, peer: [u8; 6], tid: u8) -> Option<usize> {
-        self.sessions
-            .iter()
-            .position(|session| session.as_ref().is_some_and(|session| session.peer == peer && session.tid == tid))
+        self.sessions.iter().position(|session| {
+            session
+                .as_ref()
+                .is_some_and(|session| session.peer == peer && session.tid == tid)
+        })
     }
 
     /// Whether `peer`'s frames of `tid` go through a session.
@@ -111,7 +116,11 @@ impl<T> RxBlockAck<T> {
         let Some(reply) = self.replies.iter().position(Option::is_none) else {
             return Addba::Busy;
         };
-        let window = if buffer_size == 0 { WINDOW } else { buffer_size.min(WINDOW) };
+        let window = if buffer_size == 0 {
+            WINDOW
+        } else {
+            buffer_size.min(WINDOW)
+        };
         if let Some(slot) = self.slot_of(peer, tid) {
             retire_pipe(slot);
             self.end_slot(slot, discard);
@@ -119,18 +128,34 @@ impl<T> RxBlockAck<T> {
         let free = self.sessions.iter().position(Option::is_none);
         let outcome = match free {
             Some(slot) if immediate && tid < 8 && allowed_tids & (1 << tid) != 0 => {
-                self.sessions[slot] = Some(Session { peer, tid, reorder: Reorder::new(ssn, window), hole: None });
+                self.sessions[slot] = Some(Session {
+                    peer,
+                    tid,
+                    reorder: Reorder::new(ssn, window),
+                    hole: None,
+                });
                 (Addba::Accepted { slot, window }, 0, window)
             }
             _ => (Addba::Declined, STATUS_DECLINED, 0),
         };
         let (outcome, status, window) = outcome;
-        self.replies[reply] = Some(Outgoing::AddbaResponse { peer, tid, token, status, window });
+        self.replies[reply] = Some(Outgoing::AddbaResponse {
+            peer,
+            tid,
+            token,
+            status,
+            window,
+        });
         outcome
     }
 
     /// `peer` ended its session for `tid`; returns the receive pipe freed.
-    pub fn end_session(&mut self, peer: [u8; 6], tid: u8, discard: &mut impl FnMut(T)) -> Option<usize> {
+    pub fn end_session(
+        &mut self,
+        peer: [u8; 6],
+        tid: u8,
+        discard: &mut impl FnMut(T),
+    ) -> Option<usize> {
         self.cancel_replies(peer, Some(tid));
         let slot = self.slot_of(peer, tid)?;
         self.end_slot(slot, discard);
@@ -142,7 +167,10 @@ impl<T> RxBlockAck<T> {
     pub fn end_peer(&mut self, peer: [u8; 6], discard: &mut impl FnMut(T)) -> u8 {
         self.cancel_replies(peer, None);
         (0..SESSIONS).fold(0, |freed, slot| {
-            if self.sessions[slot].as_ref().is_some_and(|session| session.peer == peer) {
+            if self.sessions[slot]
+                .as_ref()
+                .is_some_and(|session| session.peer == peer)
+            {
                 self.end_slot(slot, discard);
                 freed | 1 << slot
             } else {
@@ -152,18 +180,43 @@ impl<T> RxBlockAck<T> {
     }
 
     fn end_slot(&mut self, slot: usize, discard: &mut impl FnMut(T)) {
-        let Self { sessions, ready, ready_head, ready_len, .. } = self;
+        let Self {
+            sessions,
+            ready,
+            ready_head,
+            ready_len,
+            ..
+        } = self;
         if let Some(mut session) = sessions[slot].take() {
-            session.reorder.flush(&mut |released| route(ready, ready_head, ready_len, discard, released));
+            session
+                .reorder
+                .flush(&mut |released| route(ready, ready_head, ready_len, discard, released));
         }
     }
 
     /// `peer`'s BlockAckReq: frames before `ssn` are not coming.
-    pub fn on_block_ack_request(&mut self, peer: [u8; 6], tid: u8, ssn: u16, now: u32, discard: &mut impl FnMut(T)) {
-        let Some(slot) = self.slot_of(peer, tid) else { return };
-        let Self { sessions, ready, ready_head, ready_len, .. } = self;
+    pub fn on_block_ack_request(
+        &mut self,
+        peer: [u8; 6],
+        tid: u8,
+        ssn: u16,
+        now: u32,
+        discard: &mut impl FnMut(T),
+    ) {
+        let Some(slot) = self.slot_of(peer, tid) else {
+            return;
+        };
+        let Self {
+            sessions,
+            ready,
+            ready_head,
+            ready_len,
+            ..
+        } = self;
         if let Some(session) = sessions[slot].as_mut() {
-            session.reorder.advance_to(ssn, &mut |released| route(ready, ready_head, ready_len, discard, released));
+            session.reorder.advance_to(ssn, &mut |released| {
+                route(ready, ready_head, ready_len, discard, released)
+            });
             note_hole(session, now);
         }
     }
@@ -180,10 +233,20 @@ impl<T> RxBlockAck<T> {
         now: u32,
         discard: &mut impl FnMut(T),
     ) -> Option<T> {
-        let Some(slot) = self.slot_of(peer, tid) else { return Some(item) };
-        let Self { sessions, ready, ready_head, ready_len, .. } = self;
+        let Some(slot) = self.slot_of(peer, tid) else {
+            return Some(item);
+        };
+        let Self {
+            sessions,
+            ready,
+            ready_head,
+            ready_len,
+            ..
+        } = self;
         if let Some(session) = sessions[slot].as_mut() {
-            session.reorder.receive(sequence, item, &mut |released| route(ready, ready_head, ready_len, discard, released));
+            session.reorder.receive(sequence, item, &mut |released| {
+                route(ready, ready_head, ready_len, discard, released)
+            });
             note_hole(session, now);
         }
         None
@@ -193,11 +256,21 @@ impl<T> RxBlockAck<T> {
     /// RX FIFO runs short (`pressure`): frames the MAC acknowledges but
     /// cannot store are lost. A frame that fills a hole later goes out late.
     pub fn service(&mut self, now: u32, pressure: bool, discard: &mut impl FnMut(T)) {
-        let Self { sessions, ready, ready_head, ready_len, .. } = self;
+        let Self {
+            sessions,
+            ready,
+            ready_head,
+            ready_len,
+            ..
+        } = self;
         for session in sessions.iter_mut().flatten() {
-            let expired = session.hole.is_some_and(|(_, since)| now.wrapping_sub(since) >= HOLE_TIMEOUT_US);
+            let expired = session
+                .hole
+                .is_some_and(|(_, since)| now.wrapping_sub(since) >= HOLE_TIMEOUT_US);
             if session.reorder.held() != 0 && (pressure || expired) {
-                session.reorder.skip_hole(&mut |released| route(ready, ready_head, ready_len, discard, released));
+                session.reorder.skip_hole(&mut |released| {
+                    route(ready, ready_head, ready_len, discard, released)
+                });
                 note_hole(session, now);
             }
         }
@@ -239,7 +312,8 @@ impl<T> RxBlockAck<T> {
         let mut keep = 0;
         for i in 0..SESSIONS {
             let Some(r) = self.replies[i] else { break };
-            if !matches!(r, Outgoing::AddbaResponse { peer: p, tid: t, .. } if p == peer && tid.is_none_or(|tid| tid == t)) {
+            if !matches!(r, Outgoing::AddbaResponse { peer: p, tid: t, .. } if p == peer && tid.is_none_or(|tid| tid == t))
+            {
                 self.replies[keep] = Some(r);
                 keep += 1;
             }
@@ -286,18 +360,31 @@ fn route<T>(
 #[cfg(target_arch = "arm")]
 pub fn program_pipe(slot: usize, interface: u8, peer: [u8; 6], tid: u8, ssn: u16) {
     use crate::platform::mac_register;
-    let write = |offset: usize, value: u32| unsafe { (mac_register(offset) as *mut u32).write_volatile(value) };
+    let write = |offset: usize, value: u32| unsafe {
+        (mac_register(offset) as *mut u32).write_volatile(value)
+    };
     let read = |offset: usize| unsafe { (mac_register(offset) as *const u32).read_volatile() };
-    write(0x60 + slot * 0xc, u32::from_le_bytes([peer[0], peer[1], peer[2], peer[3]]));
-    write(0x64 + slot * 0xc, u32::from(u16::from_le_bytes([peer[4], peer[5]])));
+    write(
+        0x60 + slot * 0xc,
+        u32::from_le_bytes([peer[0], peer[1], peer[2], peer[3]]),
+    );
+    write(
+        0x64 + slot * 0xc,
+        u32::from(u16::from_le_bytes([peer[4], peer[5]])),
+    );
     write(0x68 + slot * 0xc, u32::from(tid));
     // Two enable bits per pipe; the second serves the second interface.
     let field = 16 + 2 * slot;
     let enable = (read(0x11c) & !(3 << field)) | 1 << (field + usize::from(interface != 0));
     write(0x11c, enable);
     let pipe = 0x1200 + slot * 0x20;
-    [0x10, 0x14, 0x18, 0x1c].into_iter().for_each(|offset| write(pipe + offset, 0));
-    write(pipe + 4, (u32::from(ssn & 0x0fff) << 4).wrapping_add(0x8040_0000));
+    [0x10, 0x14, 0x18, 0x1c]
+        .into_iter()
+        .for_each(|offset| write(pipe + offset, 0));
+    write(
+        pipe + 4,
+        (u32::from(ssn & 0x0fff) << 4).wrapping_add(0x8040_0000),
+    );
     write(pipe, u32::from(tid) << 28 | 4 << 16 | 3);
 }
 
@@ -306,7 +393,9 @@ pub fn program_pipe(slot: usize, interface: u8, peer: [u8; 6], tid: u8, ssn: u16
 #[cfg(target_arch = "arm")]
 pub fn clear_pipe(slot: usize) {
     use crate::platform::mac_register;
-    let write = |offset: usize, value: u32| unsafe { (mac_register(offset) as *mut u32).write_volatile(value) };
+    let write = |offset: usize, value: u32| unsafe {
+        (mac_register(offset) as *mut u32).write_volatile(value)
+    };
     write(0x1200 + slot * 0x20, 0);
     write(0x60 + slot * 0xc, 0xffff_ffff);
     write(0x64 + slot * 0xc, 0xff);
@@ -328,11 +417,39 @@ mod tests {
     fn a_session_reorders_and_other_tids_pass() {
         let mut rx = RxBlockAck::new();
         let mut dropped = Vec::new();
-        let outcome = rx.on_addba_request([0; 6], 7, 0, true, 64, 100, 0xff, &mut |item| dropped.push(item), &mut |_| ());
-        assert_eq!(outcome, Addba::Accepted { slot: 0, window: 16 });
-        assert_eq!(rx.take_response(), Some(Outgoing::AddbaResponse { peer: [0; 6], tid: 0, token: 7, status: 0, window: 16 }));
+        let outcome = rx.on_addba_request(
+            [0; 6],
+            7,
+            0,
+            true,
+            64,
+            100,
+            0xff,
+            &mut |item| dropped.push(item),
+            &mut |_| (),
+        );
+        assert_eq!(
+            outcome,
+            Addba::Accepted {
+                slot: 0,
+                window: 16
+            }
+        );
+        assert_eq!(
+            rx.take_response(),
+            Some(Outgoing::AddbaResponse {
+                peer: [0; 6],
+                tid: 0,
+                token: 7,
+                status: 0,
+                window: 16
+            })
+        );
         for sequence in [101, 102, 100, 100] {
-            assert_eq!(rx.admit(P, 0, sequence, sequence, 0, &mut |item| dropped.push(item)), None);
+            assert_eq!(
+                rx.admit(P, 0, sequence, sequence, 0, &mut |item| dropped.push(item)),
+                None
+            );
         }
         assert_eq!(drain(&mut rx), [100, 101, 102]);
         assert_eq!(dropped, [100]);
@@ -342,8 +459,20 @@ mod tests {
     #[test]
     fn disallowed_tids_are_declined() {
         let mut rx = RxBlockAck::<u16>::new();
-        assert_eq!(rx.on_addba_request([0; 6], 1, 3, true, 16, 0, 0x01, &mut |_| (), &mut |_| ()), Addba::Declined);
-        assert_eq!(rx.take_response(), Some(Outgoing::AddbaResponse { peer: [0; 6], tid: 3, token: 1, status: 37, window: 0 }));
+        assert_eq!(
+            rx.on_addba_request([0; 6], 1, 3, true, 16, 0, 0x01, &mut |_| (), &mut |_| ()),
+            Addba::Declined
+        );
+        assert_eq!(
+            rx.take_response(),
+            Some(Outgoing::AddbaResponse {
+                peer: [0; 6],
+                tid: 3,
+                token: 1,
+                status: 37,
+                window: 0
+            })
+        );
         assert!(!rx.has_session(P, 3));
     }
 
@@ -407,7 +536,10 @@ mod tests {
         // Replacing slot 1 can allocate slot 0, but must retire slot 1 first.
         assert_eq!(
             rx.on_addba_request(P, 3, 6, true, 16, 20, 0xff, &mut |_| (), &mut retire),
-            Addba::Accepted { slot: 0, window: 16 },
+            Addba::Accepted {
+                slot: 0,
+                window: 16
+            },
         );
         assert_eq!(drain(&mut rx), [3]);
         // A declined replacement must retire the old pipe too.
@@ -423,9 +555,31 @@ mod tests {
     #[test]
     fn replies_survive_a_busy_transmitter_but_not_link_teardown() {
         let mut rx = RxBlockAck::<u16>::new();
-        let add = |rx: &mut RxBlockAck<u16>, p, token| rx.on_addba_request([p; 6], token, 3, true, 16, 0, 0xff, &mut |_| (), &mut |_| ());
-        let reply = |p, token| Some(Outgoing::AddbaResponse { peer: [p; 6], tid: 3, token, status: 0, window: 16 });
-        for p in 1..=4 { add(&mut rx, p, p + 10); }
+        let add = |rx: &mut RxBlockAck<u16>, p, token| {
+            rx.on_addba_request(
+                [p; 6],
+                token,
+                3,
+                true,
+                16,
+                0,
+                0xff,
+                &mut |_| (),
+                &mut |_| (),
+            )
+        };
+        let reply = |p, token| {
+            Some(Outgoing::AddbaResponse {
+                peer: [p; 6],
+                tid: 3,
+                token,
+                status: 0,
+                window: 16,
+            })
+        };
+        for p in 1..=4 {
+            add(&mut rx, p, p + 10);
+        }
         assert_eq!(add(&mut rx, 5, 15), Addba::Busy);
         assert!(!rx.has_session([5; 6], 3));
         rx.end_peer([2; 6], &mut |_| ());

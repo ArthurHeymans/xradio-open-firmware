@@ -12,9 +12,9 @@
 use crate::global::Global;
 use core::cell::Cell;
 
-use super::*;
 use super::ampdu::MAX_MEMBERS;
 use super::hw::{read_u8, write_u32};
+use super::*;
 
 /// Longest A-MPDU PPDU to build, in microseconds; HT allows 5,484.
 const MAX_AIRTIME_US: u32 = 4_000;
@@ -22,8 +22,13 @@ const MAX_AIRTIME_US: u32 = 4_000;
 /// A-MPDU bytes that fit in `MAX_AIRTIME_US` at HT rate index `rate`
 /// (14..=21 for MCS0..7, 20 MHz, long guard interval).
 pub fn byte_budget(rate: u8) -> u32 {
-    const KBIT_PER_S: [u32; 8] = [6_500, 13_000, 19_500, 26_000, 39_000, 52_000, 58_500, 65_000];
-    let kbit = KBIT_PER_S.get(usize::from(rate.wrapping_sub(14))).copied().unwrap_or(0);
+    const KBIT_PER_S: [u32; 8] = [
+        6_500, 13_000, 19_500, 26_000, 39_000, 52_000, 58_500, 65_000,
+    ];
+    let kbit = KBIT_PER_S
+        .get(usize::from(rate.wrapping_sub(14)))
+        .copied()
+        .unwrap_or(0);
     (kbit * MAX_AIRTIME_US / 8_000).min(u32::from(u16::MAX))
 }
 
@@ -56,7 +61,10 @@ static AGGREGATES: Global<Aggregates> = Global::new(Aggregates {
 
 fn record_for(pipe: u8, slot: u8) -> Option<&'static Record> {
     let key = pipe * 4 + slot;
-    AGGREGATES.records.iter().find(|record| record.slot.get() == Some(key))
+    AGGREGATES
+        .records
+        .iter()
+        .find(|record| record.slot.get() == Some(key))
 }
 
 fn software_record(index: usize) -> u32 {
@@ -84,7 +92,8 @@ pub fn publish_aggregate(
         .enumerate()
         .find(|(_, record)| record.slot.get().is_none() && record.members[0].get().is_none())
         .ok_or(ProbeBuildError::PipeSlotBusy)?;
-    if !(2..=MAX_MEMBERS).contains(&count) || pipe >= 4
+    if !(2..=MAX_MEMBERS).contains(&count)
+        || pipe >= 4
         || members.iter().any(|id| id.get().flags.get() & 0x400 != 0)
     {
         return Err(ProbeBuildError::UnsupportedPublicationShape);
@@ -109,9 +118,12 @@ pub fn publish_aggregate(
     let (tid, _) = qos_sequence(first).ok_or(ProbeBuildError::UnsupportedPublicationShape)?;
     let mut sequences = [0; MAX_MEMBERS];
     for (sequence, &member) in sequences.iter_mut().zip(members) {
-        let (member_tid, seq) = qos_sequence(member).ok_or(ProbeBuildError::UnsupportedPublicationShape)?;
+        let (member_tid, seq) =
+            qos_sequence(member).ok_or(ProbeBuildError::UnsupportedPublicationShape)?;
         let member_frame = member.get().frame.get() as usize;
-        if member_tid != tid || (member != first && peer != core::array::from_fn(|i| read_u8(member_frame + 4 + i))) {
+        if member_tid != tid
+            || (member != first && peer != core::array::from_fn(|i| read_u8(member_frame + 4 + i)))
+        {
             return Err(ProbeBuildError::UnsupportedPublicationShape);
         }
         *sequence = seq;
@@ -131,7 +143,9 @@ pub fn publish_aggregate(
         taken[index] = Some(ring);
         // Vendor kind 1 does not prepend CTS-to-self. Keep aggregation
         // available in an ERP-protected BSS; singles reapply policy at reserve.
-        if !omit_aggregate_cts(id.get()) { crate::halt_always!(); }
+        if !omit_aggregate_cts(id.get()) {
+            crate::halt_always!();
+        }
         if let Err(error) = build_host_frame_descriptor(id) {
             failure = Some(error);
             break;
@@ -151,7 +165,10 @@ pub fn publish_aggregate(
         let end = packet_ram::automatic_response_list().end as u32;
         ampdu::transfer_word(end - 4 - u32::from(selector) * 4)
     });
-    let mut list = [ampdu::Member { frame_state: 0, frame_length: 0 }; MAX_MEMBERS];
+    let mut list = [ampdu::Member {
+        frame_state: 0,
+        frame_length: 0,
+    }; MAX_MEMBERS];
     for (entry, &id) in list.iter_mut().zip(members) {
         *entry = ampdu::Member {
             frame_state: host_descriptor_address(id).unwrap_or(0),
@@ -183,9 +200,15 @@ pub fn publish_aggregate(
         0,
         context.flags.get(),
         context.request_flag_rate_bits.get(),
-        crate::mac::RATE_ENCODING.get(usize::from(rate)).copied().unwrap_or(0),
+        crate::mac::RATE_ENCODING
+            .get(usize::from(rate))
+            .copied()
+            .unwrap_or(0),
     );
-    let hardware_rate = crate::mac::RATE_ATTRIBUTE.get(usize::from(rate)).copied().unwrap_or(0);
+    let hardware_rate = crate::mac::RATE_ATTRIBUTE
+        .get(usize::from(rate))
+        .copied()
+        .unwrap_or(0);
     let words = ampdu::phy_words(
         phy.rate,
         finalize_phy_control(phy, rate, context.frame_length.get()),
@@ -210,7 +233,13 @@ pub fn publish_aggregate(
 
     record.reply.set(Some(reply));
     record.slot.set(Some(pipe * 4 + slot));
-    for (cell, member) in record.members.iter().zip(members.iter().copied().map(Some).chain(core::iter::repeat(None))) {
+    for (cell, member) in record.members.iter().zip(
+        members
+            .iter()
+            .copied()
+            .map(Some)
+            .chain(core::iter::repeat(None)),
+    ) {
         cell.set(member);
     }
     for member in members {
@@ -261,16 +290,22 @@ pub trait BlockAckLookahead {
 /// Route a bounded number of FIFO BlockAcks to waiting or active owners.
 pub fn look_for_block_acks(fifo: &mut impl BlockAckLookahead) {
     for _ in 0..AGGREGATES.records.len() {
-        let Some(block_ack) = fifo.next_block_ack() else { break };
+        let Some(block_ack) = fifo.next_block_ack() else {
+            break;
+        };
         on_block_ack(block_ack);
     }
 }
 
 /// One cumulative bitmap may answer multiple aggregates of the same stream.
 pub fn on_block_ack(block_ack: ampdu::BlockAck) {
-    ack::route(block_ack, AGGREGATES.records.iter().map(|record| &record.reply), |index, bits| {
-        resolve(&AGGREGATES.records[index], bits);
-    });
+    ack::route(
+        block_ack,
+        AGGREGATES.records.iter().map(|record| &record.reply),
+        |index, bits| {
+            resolve(&AGGREGATES.records[index], bits);
+        },
+    );
 }
 
 /// Once per main-loop pass: look again for BlockAcks still missing, and give
@@ -278,7 +313,12 @@ pub fn on_block_ack(block_ack: ampdu::BlockAck) {
 pub fn tick(fifo: &mut impl BlockAckLookahead) {
     look_for_block_acks(fifo);
     for record in &AGGREGATES.records {
-        if record.reply.get().and_then(|reply| reply.wake_in(crate::platform::timer_now())) == Some(0) {
+        if record
+            .reply
+            .get()
+            .and_then(|reply| reply.wake_in(crate::platform::timer_now()))
+            == Some(0)
+        {
             resolve(record, 0);
         }
     }
@@ -298,9 +338,16 @@ pub fn wake_in(now: u32) -> Option<u32> {
 /// head of the PAS ring, oldest first.
 fn resolve(record: &Record, delivered: u16) {
     record.reply.set(None);
-    let members: [Option<ContextId>; MAX_MEMBERS] = core::array::from_fn(|index| record.members[index].take());
+    let members: [Option<ContextId>; MAX_MEMBERS] =
+        core::array::from_fn(|index| record.members[index].take());
     let mut statuses: [_; MAX_MEMBERS] = core::array::from_fn(|index| {
-        members[index].map(|_| if delivered >> index & 1 != 0 { 0 } else { REQUEUED })
+        members[index].map(|_| {
+            if delivered >> index & 1 != 0 {
+                0
+            } else {
+                REQUEUED
+            }
+        })
     });
     // Push the retries newest first so the oldest ends up at the head.
     for (member, status) in members.iter().zip(statuses.iter_mut()).rev() {
@@ -311,10 +358,16 @@ fn resolve(record: &Record, delivered: u16) {
             *status = 0x0b;
         }
     }
-    for (id, status) in members.into_iter().zip(statuses).filter_map(|(id, status)| Some((id?, status?))) {
+    for (id, status) in members
+        .into_iter()
+        .zip(statuses)
+        .filter_map(|(id, status)| Some((id?, status?)))
+    {
         let context = id.get();
         let class_bits = ((context.flags.get() >> 18) & 0x0c) as u16;
-        context.auxiliary_state.set(context.auxiliary_state.get() | class_bits);
+        context
+            .auxiliary_state
+            .set(context.auxiliary_state.get() | class_bits);
         context.terminal_status.set(status);
         COMPLETION_RING.enqueue(id);
     }

@@ -30,9 +30,15 @@ pub const LINKS: usize = 6;
 /// Negotiated receive limits of one HT station. Unknown peers use the
 /// smallest standard HT aggregate and the longest standard MPDU spacing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct HtLimits { pub density: u8, pub max_bytes: u16 }
+pub(crate) struct HtLimits {
+    pub density: u8,
+    pub max_bytes: u16,
+}
 impl HtLimits {
-    const CONSERVATIVE: Self = Self { density: 7, max_bytes: 8191 };
+    const CONSERVATIVE: Self = Self {
+        density: 7,
+        max_bytes: 8191,
+    };
 }
 type Station = ([u8; 6], HtLimits);
 
@@ -95,7 +101,10 @@ impl Vif {
     }
 
     fn map_station(&self, link: u8, peer: [u8; 6]) -> bool {
-        let station = self.stations.get(usize::from(link)).filter(|_| link != 0 && self.is_access_point());
+        let station = self
+            .stations
+            .get(usize::from(link))
+            .filter(|_| link != 0 && self.is_access_point());
         let Some(station) = station else { return false };
         if station.get().is_none_or(|(old, _)| old != peer) {
             station.set(Some((peer, HtLimits::CONSERVATIVE)));
@@ -112,19 +121,36 @@ impl Vif {
     }
 
     pub(crate) fn set_peer_ht(&self, data: &[u8]) {
-        let [link, factor @ 0..=3, density @ 0..=7, peer @ ..] = data else { return };
-        let Some(entry) = self.stations.get(usize::from(*link)) else { return };
-        if let Some((saved, _)) = entry.get() && peer == saved {
-            entry.set(Some((saved, HtLimits { density: *density, max_bytes: ((8192u32 << factor) - 1) as u16 })));
+        let [link, factor @ 0..=3, density @ 0..=7, peer @ ..] = data else {
+            return;
+        };
+        let Some(entry) = self.stations.get(usize::from(*link)) else {
+            return;
+        };
+        if let Some((saved, _)) = entry.get()
+            && peer == saved
+        {
+            entry.set(Some((
+                saved,
+                HtLimits {
+                    density: *density,
+                    max_bytes: ((8192u32 << factor) - 1) as u16,
+                },
+            )));
         }
     }
 
     pub(crate) fn ht_limits(&self, link: u8, station_density: u8) -> HtLimits {
         if self.is_access_point() {
-            self.stations.get(usize::from(link)).and_then(Cell::get)
+            self.stations
+                .get(usize::from(link))
+                .and_then(Cell::get)
                 .map_or(HtLimits::CONSERVATIVE, |(_, limits)| limits)
         } else {
-            HtLimits { density: station_density, max_bytes: u16::MAX }
+            HtLimits {
+                density: station_density,
+                max_bytes: u16::MAX,
+            }
         }
     }
 
@@ -223,7 +249,9 @@ pub(crate) fn publish_synthetic_scan_record() {
 }
 
 pub(crate) fn set_all_own_mac_byte(index: usize, value: u8) {
-    VIFS.records.iter().for_each(|vif| vif.own_mac[index].set(value));
+    VIFS.records
+        .iter()
+        .for_each(|vif| vif.own_mac[index].set(value));
 }
 
 /// Record the vendor rate-configuration word (bytes 0..3).
@@ -465,12 +493,22 @@ fn activate(
     parameters: &RecordParameters,
     own_mac: [u8; 6],
 ) -> Result<(), JoinStateError> {
-    let basic_rates = if parameters.basic_rates == 0 { 7 } else { parameters.basic_rates };
+    let basic_rates = if parameters.basic_rates == 0 {
+        7
+    } else {
+        parameters.basic_rates
+    };
     // Preliminary preparation is deliberately non-final. A busy radio owner
     // may leave these defaults, but cannot publish an operating VIF, effective
     // links, or activity state.
     prepare_record(record, parameters, own_mac, basic_rates);
-    publish_join_pas(crate::mac::low_mac(), interface, parameters.role, basic_rates, &own_mac);
+    publish_join_pas(
+        crate::mac::low_mac(),
+        interface,
+        parameters.role,
+        basic_rates,
+        &own_mac,
+    );
     if !acquire_radio(&VIFS, interface) {
         return Err(JoinStateError::Busy);
     }
@@ -545,8 +583,20 @@ mod tests {
         v.map_station(2, [2; 6]);
         v.set_peer_ht(&[1, 2, 1, 1, 1, 1, 1, 1, 1]);
         v.set_peer_ht(&[2, 1, 5, 2, 2, 2, 2, 2, 2]);
-        assert_eq!(v.ht_limits(1, 0), HtLimits { density: 1, max_bytes: 32767 });
-        assert_eq!(v.ht_limits(2, 0), HtLimits { density: 5, max_bytes: 16383 });
+        assert_eq!(
+            v.ht_limits(1, 0),
+            HtLimits {
+                density: 1,
+                max_bytes: 32767
+            }
+        );
+        assert_eq!(
+            v.ht_limits(2, 0),
+            HtLimits {
+                density: 5,
+                max_bytes: 16383
+            }
+        );
         v.map_station(1, [3; 6]);
         v.set_peer_ht(&[1, 2, 1, 1, 1, 1, 1, 1, 1]); // delayed write for previous station
         assert_eq!(v.ht_limits(1, 0), HtLimits::CONSERVATIVE);
@@ -557,12 +607,22 @@ mod tests {
         let (ap, station) = ([2; 6], [3; 6]);
         let vif = Vif::new();
         vif.mode.set(Role::Station as u8);
-        vif.bssid.iter().zip(ap).for_each(|(byte, value)| byte.set(value));
+        vif.bssid
+            .iter()
+            .zip(ap)
+            .for_each(|(byte, value)| byte.set(value));
         assert!(!vif.map_station(1, station));
         assert_eq!((vif.link_peer(0), vif.link_peer(1)), (Some(ap), None));
         vif.mode.set(Role::AccessPoint as u8);
-        assert!(vif.map_station(2, station) && !vif.map_station(0, station) && !vif.map_station(6, station));
-        assert_eq!((vif.link_peer(0), vif.link_peer(2), vif.peer_link(station)), (None, Some(station), Some(2)));
+        assert!(
+            vif.map_station(2, station)
+                && !vif.map_station(0, station)
+                && !vif.map_station(6, station)
+        );
+        assert_eq!(
+            (vif.link_peer(0), vif.link_peer(2), vif.peer_link(station)),
+            (None, Some(station), Some(2))
+        );
         deactivate_record(&vif);
         assert_eq!(vif.peer_link(station), None);
     }
@@ -577,7 +637,10 @@ mod tests {
         vif.effective_links.set(1);
         vif.activity_state.set(3);
         deactivate_record(&vif);
-        assert_eq!((vif.active.get(), vif.mode.get(), vif.flags.get()), (0, 0, 0));
+        assert_eq!(
+            (vif.active.get(), vif.mode.get(), vif.flags.get()),
+            (0, 0, 0)
+        );
         assert_eq!((vif.allowed_links.get(), vif.effective_links.get()), (0, 0));
         assert_eq!(vif.activity_state.get(), 0);
     }
@@ -587,7 +650,10 @@ mod tests {
         let vif = Vif::new();
         vif.rate_bytes[7].set(3);
         set_rate_configuration(&vif, 0x4433_2211);
-        assert_eq!(vif.rate_bytes.each_ref().map(Cell::get), [0x11, 0x22, 0x33, 0x44, 0, 0, 0, 3]);
+        assert_eq!(
+            vif.rate_bytes.each_ref().map(Cell::get),
+            [0x11, 0x22, 0x33, 0x44, 0, 0, 0, 3]
+        );
     }
 
     #[test]
@@ -605,7 +671,10 @@ mod tests {
         publish_join_pas(&low_mac, 1, Role::Station, 0x1234, &[1, 2, 3, 4, 5, 6]);
 
         assert_eq!(low_mac.pas(2_usize).activity.get(), 0);
-        assert_eq!((pas.activity.get(), pas.slot_bits.get(), pas.mode.get()), (2, 4, 1));
+        assert_eq!(
+            (pas.activity.get(), pas.slot_bits.get(), pas.mode.get()),
+            (2, 4, 1)
+        );
         assert_eq!(pas.basic_rates.get(), 0x1234);
         assert_eq!(pas.slot_timing.get(), 9);
         assert_eq!(pas.own_mac.each_ref().map(Cell::get), [1, 2, 3, 4, 5, 6]);

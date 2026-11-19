@@ -66,8 +66,9 @@ impl BeaconMonitor {
     /// SET_BSS_PARAMS: report the BSS lost after `count` missed beacons
     /// (0: do not watch).
     pub fn set_lost_count(&mut self, count: u8, now: u32) {
-        self.limit_us = (count != 0 && self.interval_us != 0)
-            .then(|| i32::try_from(self.interval_us.saturating_mul(u32::from(count))).unwrap_or(i32::MAX));
+        self.limit_us = (count != 0 && self.interval_us != 0).then(|| {
+            i32::try_from(self.interval_us.saturating_mul(u32::from(count))).unwrap_or(i32::MAX)
+        });
         self.last_beacon = now;
     }
 
@@ -78,7 +79,11 @@ impl BeaconMonitor {
         let mut filter = core::mem::take(&mut self.filter);
         signal.restart();
         filter.restart();
-        *self = Self { signal, filter, ..Self::new() };
+        *self = Self {
+            signal,
+            filter,
+            ..Self::new()
+        };
     }
 
     /// A beacon, or any other frame, from the joined BSS's AP arrived.
@@ -110,7 +115,10 @@ impl BeaconMonitor {
     /// Microseconds until [`Self::poll`] could find the BSS lost.
     pub fn wake_in(&self, now: u32) -> Option<u32> {
         let limit = self.limit_us.filter(|_| !self.lost)?;
-        Some(crate::deadline::until(self.last_beacon.wrapping_add(limit as u32).wrapping_add(1), now))
+        Some(crate::deadline::until(
+            self.last_beacon.wrapping_add(limit as u32).wrapping_add(1),
+            now,
+        ))
     }
 
     /// Only the latest state matters: a Lost and a Regained not yet reported

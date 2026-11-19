@@ -35,7 +35,10 @@ impl RxToken {
 pub(crate) enum ReleaseAction {
     AlreadyReleased,
     Pending,
-    MarkPending { low_state: u32, corrupt: bool },
+    MarkPending {
+        low_state: u32,
+        corrupt: bool,
+    },
     ReleaseHead {
         low_state: u32,
         normalize_first: bool,
@@ -62,7 +65,10 @@ impl RxRing {
         }
     }
 
-    pub(crate) fn activity(&self, activity: crate::activity::Activity) -> crate::activity::Activity {
+    pub(crate) fn activity(
+        &self,
+        activity: crate::activity::Activity,
+    ) -> crate::activity::Activity {
         activity
             .with(self.release_offset)
             .with(self.claim_offset)
@@ -148,11 +154,7 @@ impl RxRing {
         }
     }
 
-    pub(crate) const fn classify_release(
-        &self,
-        token: &RxToken,
-        state: u32,
-    ) -> ReleaseAction {
+    pub(crate) const fn classify_release(&self, token: &RxToken, state: u32) -> ReleaseAction {
         let ownership = state & OWNERSHIP_MASK;
         let low_state = state & 0xff;
         if ownership == RELEASED_OWNERSHIP {

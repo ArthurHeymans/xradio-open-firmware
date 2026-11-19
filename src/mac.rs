@@ -1,8 +1,8 @@
 //! Vendor MAC wake restoration and post-channel reprogramming.
 
-use tock_registers::interfaces::{ReadWriteable, Readable, Writeable};
 use crate::global::Global;
 use core::cell::Cell;
+use tock_registers::interfaces::{ReadWriteable, Readable, Writeable};
 
 use crate::{packet_ram, platform};
 
@@ -125,7 +125,9 @@ pub fn current_channel() -> u16 {
 /// The MAC's packet offset of `address`, which must lie in runtime packet
 /// RAM.
 fn packet_offset(address: usize) -> u32 {
-    if !(packet_ram::RUNTIME_CPU_START as usize..packet_ram::RUNTIME_CPU_END as usize).contains(&address) {
+    if !(packet_ram::RUNTIME_CPU_START as usize..packet_ram::RUNTIME_CPU_END as usize)
+        .contains(&address)
+    {
         crate::halt_always!();
     }
     packet_ram::encode_mac_packet_offset_u32(address as u32)
@@ -378,7 +380,11 @@ fn program_rate_tables(pas: &Pas) {
     }
     let secondary = secondary_fallbacks(basic, fallbacks[21]);
 
-    let column = if pas.rate_table_column.get() == 0 { 0 } else { 2 };
+    let column = if pas.rate_table_column.get() == 0 {
+        0
+    } else {
+        2
+    };
     for (hardware_class, rate) in RATE_PAIRS {
         let fallback = fallbacks[rate as usize];
         let mut index = OFFSET_TABLE[hardware_class as usize][column]
@@ -396,9 +402,9 @@ fn program_rate_tables(pas: &Pas) {
             let entry = build_rate_entry(cfg, hardware_class, secondary[usize::from(rate) - 14]);
             for (word, value) in entry.into_iter().enumerate() {
                 write_u32(
-                        packet_ram::rate_entry(usize::from(secondary_index)) + word * 4,
-                        value,
-                    );
+                    packet_ram::rate_entry(usize::from(secondary_index)) + word * 4,
+                    value,
+                );
             }
         }
     }
@@ -439,7 +445,10 @@ pub fn program_active_vif_rate_tables(interface: u8) -> bool {
 /// supports 2.4 GHz and must restore its 9 us slot-time base.
 pub fn program_joined_station_slot_timing(interface: u8) {
     let low_mac = low_mac();
-    program_slot_timings(low_mac.rate_config.get(), low_mac.pas(interface).slot_timing.get());
+    program_slot_timings(
+        low_mac.rate_config.get(),
+        low_mac.pas(interface).slot_timing.get(),
+    );
 }
 
 fn program_pipe_slot(pointer: usize, slot: u8) {
@@ -458,10 +467,7 @@ fn program_pipe_slot(pointer: usize, slot: u8) {
     } else {
         return;
     };
-    write_u32(
-            packet_ram::response_pointer(usize::from(slot)),
-            bus_address,
-        );
+    write_u32(packet_ram::response_pointer(usize::from(slot)), bus_address);
     let register_bit = if logical == 30 { 31 } else { logical };
     for address in [
         crate::platform::mac_register(0x0a08),
@@ -470,9 +476,7 @@ fn program_pipe_slot(pointer: usize, slot: u8) {
         let value = read_u32(address) | (1_u32 << register_bit);
         write_u32(address, value);
     }
-    let value = read_u32(crate::platform::mac_register(0x0a10))
-        & !(1_u32 << logical)
-        & 0x00ff_ffff;
+    let value = read_u32(crate::platform::mac_register(0x0a10)) & !(1_u32 << logical) & 0x00ff_ffff;
     write_u32(crate::platform::mac_register(0x0a10), value);
 }
 
@@ -494,21 +498,40 @@ pub fn tsf() -> u64 {
 /// the body has the MAC fill in the timestamp (octets 24..32).
 ///
 /// The MAC must not be sending from the descriptor (beacon disarmed).
-pub fn build_beacon_descriptor(frame: u32, length: u16, rate: u8, frame_control: u16, sequence_slot: u8) -> bool {
-    let Some(body) = packet_ram::RuntimePacketAddress::new(frame + 0x20, usize::from(length) - 0x20) else {
+pub fn build_beacon_descriptor(
+    frame: u32,
+    length: u16,
+    rate: u8,
+    frame_control: u16,
+    sequence_slot: u8,
+) -> bool {
+    let Some(body) =
+        packet_ram::RuntimePacketAddress::new(frame + 0x20, usize::from(length) - 0x20)
+    else {
         return false;
     };
     let low_mac = low_mac();
     let pointer = packet_ram::response_command(3);
     // Vendor `+0x38` of the slot timings: 16 slots plus 2.
-    let gap = low_mac.slot_time_base.get().wrapping_mul(16).wrapping_add(low_mac.slot_time_constant.get()) & 0x1fff;
+    let gap = low_mac
+        .slot_time_base
+        .get()
+        .wrapping_mul(16)
+        .wrapping_add(low_mac.slot_time_constant.get())
+        & 0x1fff;
     write_u32(pointer, gap | gap << 16 | 0xe000_e000);
     write_u16(pointer + 4, 0);
     // A fixed backoff: an access point beacons at TBTT (IBSS stations
     // randomize theirs).
     write_u16(pointer + 6, 0xbc01);
     write_u32(pointer + 8, 0x5800_0000);
-    let phy = crate::tx::build_phy_rate_words(rate, 0, 0, 0, RATE_ENCODING.get(usize::from(rate)).copied().unwrap_or(0));
+    let phy = crate::tx::build_phy_rate_words(
+        rate,
+        0,
+        0,
+        0,
+        RATE_ENCODING.get(usize::from(rate)).copied().unwrap_or(0),
+    );
     let hardware_rate = RATE_ATTRIBUTE.get(usize::from(rate)).copied().unwrap_or(0);
     let words = [
         0x5100_0000 | (phy.rate & 0x00ff_ffff),
@@ -552,16 +575,25 @@ pub fn start_beaconing(rate: u8) {
 /// `tsf_align_to_beacon_interval`, `0x2d38`): pointer slot 0, bit 0 of
 /// `0x0a00`, and the TBTT's low 24 bits in `0x0e08`.
 pub fn arm_beacon(tbtt: u64) {
-    write_u32(packet_ram::response_pointer(0), packet_offset(packet_ram::response_command(3)));
+    write_u32(
+        packet_ram::response_pointer(0),
+        packet_offset(packet_ram::response_command(3)),
+    );
     write_u32(platform::mac_register(0x0a00), 0x1030_0001);
-    write_u32(platform::mac_register(0x0e08), 0x4000_0000 | (tbtt as u32 & 0x00ff_ffff));
+    write_u32(
+        platform::mac_register(0x0e08),
+        0x4000_0000 | (tbtt as u32 & 0x00ff_ffff),
+    );
 }
 
 /// Stop beaconing (vendor `mac_disable_beacon_hw`, `0x10172`).
 pub fn disarm_beacon() {
     write_u32(platform::mac_register(0x0e08), 0);
     write_u32(platform::mac_register(0x0a00), 0x1030_0000);
-    write_u32(packet_ram::response_pointer(0), packet_offset(packet_ram::response_command(8)));
+    write_u32(
+        packet_ram::response_pointer(0),
+        packet_offset(packet_ram::response_command(8)),
+    );
 }
 
 /// An access point matches frames on its own address only: no BSSID entry.
@@ -649,7 +681,10 @@ pub fn program_before_scan_channel(channel: u16) {
         crate::platform::mac_register(0x0800),
         packet_offset(packet_ram::rate_ram().start),
     );
-    program_slot_timings(low_mac.rate_config.get(), low_mac.pas(2_usize).slot_timing.get());
+    program_slot_timings(
+        low_mac.rate_config.get(),
+        low_mac.pas(2_usize).slot_timing.get(),
+    );
 
     let mut first_active = false;
     let mut second_active = false;
@@ -659,18 +694,22 @@ pub fn program_before_scan_channel(channel: u16) {
             second_active = true;
             pas.rate_table_column.set(1);
             write_u32(
-                    crate::platform::mac_register(0x0270),
-                    if pas.path_selector.get() == 0 { 0x0100_0000 } else { 1 << 26 },
-                );
+                crate::platform::mac_register(0x0270),
+                if pas.path_selector.get() == 0 {
+                    0x0100_0000
+                } else {
+                    1 << 26
+                },
+            );
         } else {
             first_active = true;
         }
         program_rate_tables(pas);
     }
     write_u32(
-            crate::platform::mac_register(0x0314),
-            if second_active { 0x0100_0000 } else { 0 },
-        );
+        crate::platform::mac_register(0x0314),
+        if second_active { 0x0100_0000 } else { 0 },
+    );
     low_mac.current_channel.set(channel);
 }
 
@@ -813,7 +852,10 @@ pub fn initialize_tx_pipe_state() {
 pub fn begin_unjoined_scan_radio_stop() {
     write_u32(crate::platform::mac_register(0x0a28), 0);
     write_u32(crate::platform::mac_register(0x0a00), 0x1030_0000);
-    write_u32(crate::platform::mac_register(0x0a04), low_mac().beacon_selector.get());
+    write_u32(
+        crate::platform::mac_register(0x0a04),
+        low_mac().beacon_selector.get(),
+    );
     for index in 0..32 {
         write_u32(
             packet_ram::response_pointer(index),
@@ -962,9 +1004,12 @@ fn program_slot_timings(cfg: u16, base: u32) {
 /// packet RAM 0x800c, ours elsewhere: the hard-coded vendor address sent
 /// responses with flags taken from host data.
 fn metadata_source_word(if_id: u8) -> u32 {
-    packet_ram::RuntimePacketAddress::new(packet_ram::interface_metadata_byte(usize::from(if_id)) as u32, 1)
-        .map(|address| 0x2080_0000 | address.mac_offset().raw())
-        .unwrap_or_else(|| crate::halt_always!())
+    packet_ram::RuntimePacketAddress::new(
+        packet_ram::interface_metadata_byte(usize::from(if_id)) as u32,
+        1,
+    )
+    .map(|address| 0x2080_0000 | address.mac_offset().raw())
+    .unwrap_or_else(|| crate::halt_always!())
 }
 
 /// BlockAck response template (vendor `txp_build_ba_desc`, 0x10758). Words
@@ -1023,9 +1068,9 @@ fn configure_response_pipe_slot(slot: u8) {
 fn set_pipe_enabled(slot: u8) {
     let bit = slot - 2;
     write_u32(
-            crate::platform::mac_register(0x0a04),
-            read_u32(crate::platform::mac_register(0x0a04)) | (1_u32 << bit),
-        );
+        crate::platform::mac_register(0x0a04),
+        read_u32(crate::platform::mac_register(0x0a04)) | (1_u32 << bit),
+    );
 }
 
 fn install_response_descriptors() {

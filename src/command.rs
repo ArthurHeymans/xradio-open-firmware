@@ -23,7 +23,10 @@ use crate::key_change;
 
 /// Suppress new autonomous management publications while a key barrier drains.
 pub(crate) fn key_change_pending(firmware: &crate::firmware::Firmware) -> bool {
-    firmware.held_request.as_ref().is_some_and(|(request, _)| key_change::is_key_change(request.id))
+    firmware
+        .held_request
+        .as_ref()
+        .is_some_and(|(request, _)| key_change::is_key_change(request.id))
 }
 
 pub fn encode_debug_event(event_id: u32, data: u32, output: &mut [u8]) -> Option<usize> {
@@ -45,7 +48,9 @@ fn service_management_request(
     output: &mut [u8],
     publish_response: &mut bool,
 ) -> Result<usize, crate::wsm::Error> {
-    let owner = tx::ManagementOwner::Host { packet_id: request.packet_id };
+    let owner = tx::ManagementOwner::Host {
+        packet_id: request.packet_id,
+    };
     match tx::service_host_management_tx(events, crypto, Some((request, if_id, owner)), 0) {
         tx::HostManagementTxReport::Published { .. } => {
             *publish_response = true;
@@ -82,7 +87,9 @@ fn encode_read_mib(
     if mib_id != 0x100c {
         return encode_read_mib_response(STATUS_FAILURE, mib_id, output);
     }
-    let values = crypto.failed_self_test().unwrap_or_else(crate::counters::snapshot);
+    let values = crypto
+        .failed_self_test()
+        .unwrap_or_else(crate::counters::snapshot);
     let mut data = [0_u8; crate::counters::WORDS * 4];
     for (chunk, value) in data.chunks_exact_mut(4).zip(values) {
         chunk.copy_from_slice(&value.to_le_bytes());
@@ -95,11 +102,18 @@ fn retain_configuration(
     request: ConfigurationRequest<'_>,
 ) -> Option<([u8; 6], [TxPowerRange; 2])> {
     configuration.retain(&request).ok()?;
-    Some((configuration.station_id()?, configuration.tx_power_ranges()?))
+    Some((
+        configuration.station_id()?,
+        configuration.tx_power_ranges()?,
+    ))
 }
 
 /// Hand the association parameters the host changed to their users.
-fn publish_association(configuration: &Configuration, events: &mut tx::TxEngine, radio: &mut crate::radio::Radio) {
+fn publish_association(
+    configuration: &Configuration,
+    events: &mut tx::TxEngine,
+    radio: &mut crate::radio::Radio,
+) {
     events.mpdu_start_spacing = configuration.mpdu_start_spacing();
     events.block_ack_tx_tids = configuration.block_ack_tx_tids();
     events.protection = configuration.tx_protection();
@@ -110,9 +124,13 @@ fn publish_association(configuration: &Configuration, events: &mut tx::TxEngine,
 /// Apply a decoded MIB write. Request buffers and reply publication remain
 /// exclusively in the dispatcher.
 fn write_mib(
-    req: crate::wsm::WriteMibRequest<'_>, interface: u8, configuration: &mut Configuration,
-    events: &mut tx::TxEngine, radio: &mut crate::radio::Radio,
-    beacons: &mut crate::beacon_loss::BeaconMonitor, ps: &mut crate::power_save::StationPowerSave,
+    req: crate::wsm::WriteMibRequest<'_>,
+    interface: u8,
+    configuration: &mut Configuration,
+    events: &mut tx::TxEngine,
+    radio: &mut crate::radio::Radio,
+    beacons: &mut crate::beacon_loss::BeaconMonitor,
+    ps: &mut crate::power_save::StationPowerSave,
 ) -> u32 {
     use crate::wsm::*;
     let data = req.data;
@@ -122,15 +140,20 @@ fn write_mib(
         MIB_ID_BEACON_FILTER_ENABLE => beacons.filter.set_control(data),
         MIB_ID_RX_FILTER => beacons.filter.set_rx_filter(data),
         MIB_ID_PEER_HT => {
-            if let Some(vif) = vif::vif(interface) { vif.set_peer_ht(data); }
+            if let Some(vif) = vif::vif(interface) {
+                vif.set_peer_ht(data);
+            }
             true
         }
         MIB_ID_DISABLE_BSSID_FILTER => beacons.filter.set_bssid_filter(data),
         MIB_ID_RCPI_RSSI_THRESHOLD => beacons.signal.configure(data),
         0x1007 => ps.set_beacon_period(data),
-        rate_policy::MIB_ID_SET_TX_RATE_RETRY_POLICY => events.rate_policies().install(data).is_ok(),
+        rate_policy::MIB_ID_SET_TX_RATE_RETRY_POLICY => {
+            events.rate_policies().install(data).is_ok()
+        }
         id if configuration.retain_protection_mib(interface, id, data)
-            || configuration.retain_interface_mib(id, data) => {
+            || configuration.retain_interface_mib(id, data) =>
+        {
             publish_association(configuration, events, radio);
             true
         }
@@ -165,10 +188,13 @@ const DRAIN_US: u32 = 1_000_000;
 /// bound.
 fn waits_for_drain(firmware: &crate::firmware::Firmware, request: &ReceivedRequest) -> bool {
     match request.id {
-        crate::wsm::RESET_REQ_ID => request.link_id == 0 && !crate::tx::probe_runtime_quiescent(firmware.tx_engine),
+        crate::wsm::RESET_REQ_ID => {
+            request.link_id == 0 && !crate::tx::probe_runtime_quiescent(firmware.tx_engine)
+        }
         crate::wsm::TX_REQ_ID => {
             !firmware.host_tx_driver.management_runtime_available()
-                && crate::wsm::TxRequest::parse(request.buffer.payload()).is_ok_and(|tx| !tx.takes_data_path())
+                && crate::wsm::TxRequest::parse(request.buffer.payload())
+                    .is_ok_and(|tx| !tx.takes_data_path())
         }
         _ => false,
     }
@@ -184,32 +210,34 @@ pub fn service_one(firmware: &mut crate::firmware::Firmware) {
         return;
     }
     let now = crate::platform::timer_now();
-    let Some((request, since)) = firmware
-        .held_request
-        .take()
-        .or_else(|| firmware.transport.poll_request().map(|request| (request, now)))
-    else {
+    let Some((request, since)) = firmware.held_request.take().or_else(|| {
+        firmware
+            .transport
+            .poll_request()
+            .map(|request| (request, now))
+    }) else {
         return;
     };
-    let key_status = if let Some(change) = key_change::KeyChange::parse(request.id, request.buffer.payload()) {
-        // Confirming owners cannot emit again. RX jobs do not hold this gate:
-        // their captured epochs already prevent publication after revocation.
-        let quiet = firmware.host_tx_driver.key_change_drained()
-            && tx::probe_runtime_quiescent(firmware.tx_engine);
-        match change.progress(firmware.crypto, quiet, since, now) {
-            key_change::Progress::Waiting => {
+    let key_status =
+        if let Some(change) = key_change::KeyChange::parse(request.id, request.buffer.payload()) {
+            // Confirming owners cannot emit again. RX jobs do not hold this gate:
+            // their captured epochs already prevent publication after revocation.
+            let quiet = firmware.host_tx_driver.key_change_drained()
+                && tx::probe_runtime_quiescent(firmware.tx_engine);
+            match change.progress(firmware.crypto, quiet, since, now) {
+                key_change::Progress::Waiting => {
+                    firmware.held_request = Some((request, since));
+                    return;
+                }
+                key_change::Progress::Complete(status) => Some(status),
+            }
+        } else {
+            if waits_for_drain(firmware, &request) && now.wrapping_sub(since) < DRAIN_US {
                 firmware.held_request = Some((request, since));
                 return;
             }
-            key_change::Progress::Complete(status) => Some(status),
-        }
-    } else {
-        if waits_for_drain(firmware, &request) && now.wrapping_sub(since) < DRAIN_US {
-            firmware.held_request = Some((request, since));
-            return;
-        }
-        None
-    };
+            None
+        };
     dispatch_single_request(firmware, request, key_status);
 }
 
@@ -245,11 +273,15 @@ fn dispatch_single_request(
         .as_ref()
         .expect("request buffer is present")
         .payload();
-    let status_response = |status: u32, output: &mut [u8]| encode_status_response(request_id | 0x0400, status, output);
+    let status_response = |status: u32, output: &mut [u8]| {
+        encode_status_response(request_id | 0x0400, status, output)
+    };
     let response_length = {
         match Request::parse(request_id, request_payload) {
             Request::Configuration(request) => {
-                let configured = request.ok().and_then(|request| retain_configuration(configuration, request));
+                let configured = request
+                    .ok()
+                    .and_then(|request| retain_configuration(configuration, request));
                 let (station_id, tx_power_ranges) = configured.unwrap_or((
                     [0; 6],
                     [
@@ -274,7 +306,7 @@ fn dispatch_single_request(
                     Ok(Ok(())) => {
                         power_save.invalidate_beacon();
                         0
-                    },
+                    }
                     Ok(Err(scan::ScanError::Busy)) => 4,
                     _ => 2,
                 };
@@ -295,14 +327,19 @@ fn dispatch_single_request(
                 status_response(status, output)
             }
             Request::TxQueueParams(parameters) => {
-                let status = parameters.map(|parameters| configuration.retain_tx_queue(parameters)).map(|()| 0).unwrap_or(2);
+                let status = parameters
+                    .map(|parameters| configuration.retain_tx_queue(parameters))
+                    .map(|()| 0)
+                    .unwrap_or(2);
                 status_response(status, output)
             }
             Request::EdcaParams(parameters) => {
                 let status = match parameters {
                     Ok(parameters) => {
                         configuration.retain_edca(parameters);
-                        vif::apply_edca(request_if_id, parameters).map(|_| 0).unwrap_or(2)
+                        vif::apply_edca(request_if_id, parameters)
+                            .map(|_| 0)
+                            .unwrap_or(2)
                     }
                     Err(_) => 2,
                 };
@@ -310,7 +347,15 @@ fn dispatch_single_request(
             }
             Request::WriteMib(request) => {
                 let status = request.map_or(STATUS_FAILURE, |req| {
-                    write_mib(req, request_if_id, configuration, events, radio, beacons, power_save)
+                    write_mib(
+                        req,
+                        request_if_id,
+                        configuration,
+                        events,
+                        radio,
+                        beacons,
+                        power_save,
+                    )
                 });
                 status_response(status, output)
             }
@@ -334,7 +379,11 @@ fn dispatch_single_request(
                         power_save.reset();
                         host_tx_driver.reset(crypto);
                         beacons.reset();
-                        if join::reset(events, crypto, radio, request_if_id) { 0 } else { STATUS_FAILURE }
+                        if join::reset(events, crypto, radio, request_if_id) {
+                            0
+                        } else {
+                            STATUS_FAILURE
+                        }
                     }
                     Err(_) => STATUS_FAILURE,
                 };
@@ -348,7 +397,10 @@ fn dispatch_single_request(
                 // A failed SET_PM would deadlock cw1200 while joined; a
                 // malformed one keeps the current mode.
                 if let Ok((mode, idle)) = request {
-                    power_save.set_mode(crate::power_save::Mode::from_set_pm(mode, idle), crate::platform::timer_now());
+                    power_save.set_mode(
+                        crate::power_save::Mode::from_set_pm(mode, idle),
+                        crate::platform::timer_now(),
+                    );
                 }
                 pending.set_pm_complete = true;
                 status_response(0, output)
@@ -358,7 +410,11 @@ fn dispatch_single_request(
             // failed confirmation would deadlock cw1200 (it is an access point).
             Request::UpdateIe(request) => {
                 let status = request.map_or(STATUS_FAILURE, |request| {
-                    configuration.update_template_elements(request.what, request.count, request.elements);
+                    configuration.update_template_elements(
+                        request.what,
+                        request.count,
+                        request.elements,
+                    );
                     0
                 });
                 status_response(status, output)
@@ -379,20 +435,18 @@ fn dispatch_single_request(
             Request::Join(request) => {
                 power_save.reset();
                 let status = match request {
-                    Ok(join_request) => {
-                        join::activate_sta(
-                            events,
-                            crypto,
-                            radio,
-                            scan.active_interface().is_some(),
-                            configuration.station_id(),
-                            request_if_id,
-                            &join_request,
-                        )
-                            .map(|_| beacons.join(join_request.beacon_interval))
-                            .map(|()| 0)
-                            .unwrap_or(STATUS_FAILURE)
-                    },
+                    Ok(join_request) => join::activate_sta(
+                        events,
+                        crypto,
+                        radio,
+                        scan.active_interface().is_some(),
+                        configuration.station_id(),
+                        request_if_id,
+                        &join_request,
+                    )
+                    .map(|_| beacons.join(join_request.beacon_interval))
+                    .map(|()| 0)
+                    .unwrap_or(STATUS_FAILURE),
                     Err(_) => STATUS_FAILURE,
                 };
                 if status == 0 && request.is_ok_and(|request| request.wants_complete_indication()) {
@@ -435,7 +489,14 @@ fn dispatch_single_request(
                     if tx_request.is_unicast() {
                         power_save.on_traffic(crate::platform::timer_now());
                     }
-                    service_management_request(events, crypto, &tx_request, request_if_id, output, &mut publish_response)
+                    service_management_request(
+                        events,
+                        crypto,
+                        &tx_request,
+                        request_if_id,
+                        output,
+                        &mut publish_response,
+                    )
                 }
             }
             Request::Tx(Err(_)) => {
@@ -467,13 +528,17 @@ fn dispatch_single_request(
                 status_response(status, output)
             }
             Request::BeaconTransmit(enable) => {
-                let status = enable.ok().and_then(|enable| ap.set_beaconing(enable).ok()).map_or(STATUS_FAILURE, |()| 0);
+                let status = enable
+                    .ok()
+                    .and_then(|enable| ap.set_beaconing(enable).ok())
+                    .map_or(STATUS_FAILURE, |()| 0);
                 status_response(status, output)
             }
             // The station's link: its sequence numbers and BlockAck sessions.
             Request::MapLink(station) => {
                 let status = station.map_or(STATUS_FAILURE, |station| {
-                    if let Some(previous) = vif::link_peer(request_if_id, request_link_id).filter(|&peer| peer != station)
+                    if let Some(previous) = vif::link_peer(request_if_id, request_link_id)
+                        .filter(|&peer| peer != station)
                         && request_link_id != 0
                     {
                         events.ba.link(request_link_id).reset();

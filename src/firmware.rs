@@ -13,20 +13,20 @@
 //! (`docs/interrupts-and-sleep.md`); the linger keeps the loop awake while
 //! traffic flows.
 
+use crate::activity::Activity;
 use crate::command::PendingIndications;
+use crate::configuration::Configuration;
 use crate::crypto::Crypto;
-use crate::radio::Radio;
-use crate::scan::Scan;
 use crate::hif::{SHARED_BUFFER_SIZE, Transport};
 use crate::platform::service_masked_packet_dma_interrupt;
+use crate::radio::Radio;
+use crate::scan::Scan;
 use crate::tx::HostTxDriver;
 use crate::wsm::{
-    encode_join_complete_indication, encode_multi_tx_confirm_header, encode_scan_complete_indication,
-    encode_set_pm_complete_indication, encode_switch_channel_indication, encode_tx_confirm_entry,
-    encode_xr819_tx_confirm_details,
+    encode_join_complete_indication, encode_multi_tx_confirm_header,
+    encode_scan_complete_indication, encode_set_pm_complete_indication,
+    encode_switch_channel_indication, encode_tx_confirm_entry, encode_xr819_tx_confirm_details,
 };
-use crate::activity::Activity;
-use crate::configuration::Configuration;
 use crate::{beacon_loss, command, scan, tx, vif};
 
 /// The longest sleep while work is in flight: frames queued for the MAC, in
@@ -146,7 +146,10 @@ impl Firmware {
     /// How long the loop may sleep at `now`: until the earliest timed work,
     /// and at most [`WAKE_BOUND_US`] unless every lane is settled.
     fn sleep_budget(&self, now: u32) -> u32 {
-        let watchdog = crate::deadline::until(self.last_watchdog_tick.wrapping_add(WATCHDOG_PERIOD_US), now);
+        let watchdog = crate::deadline::until(
+            self.last_watchdog_tick.wrapping_add(WATCHDOG_PERIOD_US),
+            now,
+        );
         let timed = [
             self.beacons.wake_in(now),
             self.tx_engine.ba.wake_in(now),
@@ -158,7 +161,11 @@ impl Firmware {
         .into_iter()
         .flatten()
         .fold(watchdog, u32::min);
-        if self.settled() { timed } else { timed.min(WAKE_BOUND_US) }
+        if self.settled() {
+            timed
+        } else {
+            timed.min(WAKE_BOUND_US)
+        }
     }
 
     /// Nothing queued or in flight in any lane: what is left waits for an
@@ -239,7 +246,8 @@ impl Firmware {
     /// and PHY until just before a selected beacon, bounded by DTIM and BSS
     /// loss.
     fn doze_receiver_if_idle(&mut self) {
-        if !self.power_save.may_doze() || self.scan.active_interface().is_some() || !self.settled() {
+        if !self.power_save.may_doze() || self.scan.active_interface().is_some() || !self.settled()
+        {
             return;
         }
         let now = crate::platform::timer_now();
@@ -283,8 +291,10 @@ impl Firmware {
         // data batches until the MAC has no data frame, then goes out through
         // the management publisher.
         let key_change_pending = command::key_change_pending(self);
-        let block_ack_waiting = !key_change_pending && vif::active_interface().is_some()
-            && (self.radio.block_ack_response().is_some() || self.tx_engine.ba.outgoing(self.now).is_some());
+        let block_ack_waiting = !key_change_pending
+            && vif::active_interface().is_some()
+            && (self.radio.block_ack_response().is_some()
+                || self.tx_engine.ba.outgoing(self.now).is_some());
         self.host_tx_driver.seal(self.crypto);
         self.host_tx_driver.service(
             self.tx_engine,
@@ -305,7 +315,9 @@ impl Firmware {
         {
             match owner {
                 tx::ManagementOwner::BlockAck => self.tx_engine.ba.completed(self.now),
-                tx::ManagementOwner::PowerSave => self.power_save.completed(status == 0, crate::platform::timer_now()),
+                tx::ManagementOwner::PowerSave => self
+                    .power_save
+                    .completed(status == 0, crate::platform::timer_now()),
                 tx::ManagementOwner::Host { packet_id } => {
                     self.pending_tx_confirmation = Some((packet_id, status, tx_rate, ack_failures));
                 }
@@ -318,21 +330,34 @@ impl Firmware {
         let scanning = self.scan.active_interface().is_some();
         // Ask again: the completion just handled may have been this very
         // frame, and publishing the stale answer sent every one twice.
-        if !key_change_pending && !scanning
+        if !key_change_pending
+            && !scanning
             && self.pending_tx_confirmation.is_none()
             && !tx::host_management_runtime_active(self.tx_engine)
             && self.host_tx_driver.hardware_idle()
             && let Some(if_id) = vif::active_interface()
-            && let Some((link, frame)) =
-                self.radio.block_ack_response().map(|frame| (0, frame)).or_else(|| self.tx_engine.ba.outgoing(self.now))
+            && let Some((link, frame)) = self
+                .radio
+                .block_ack_response()
+                .map(|frame| (0, frame))
+                .or_else(|| self.tx_engine.ba.outgoing(self.now))
         {
             let tid = frame.tid();
-            let ssn = self.host_tx_driver.window_start(link, tid, tx::next_sequence(if_id, link, tid));
+            let ssn =
+                self.host_tx_driver
+                    .window_start(link, tid, tx::next_sequence(if_id, link, tid));
             // A response names its requester; a request goes to the link's peer.
             let recipient = vif::link_peer(if_id, link);
             let published = match (frame, recipient) {
                 (tx::ba::Outgoing::AddbaResponse { peer, .. }, _) | (_, Some(peer)) => {
-                    tx::publish_block_ack_frame(self.tx_engine, self.crypto, frame, if_id, peer, ssn)
+                    tx::publish_block_ack_frame(
+                        self.tx_engine,
+                        self.crypto,
+                        frame,
+                        if_id,
+                        peer,
+                        ssn,
+                    )
                 }
                 (_, None) => false,
             };
@@ -348,7 +373,8 @@ impl Firmware {
                 // Unsendable: drop it rather than hold data back forever.
                 _ => sessions.sent(frame, self.now),
             }
-        } else if !key_change_pending && !scanning
+        } else if !key_change_pending
+            && !scanning
             && self.pending_tx_confirmation.is_none()
             && !tx::host_management_runtime_active(self.tx_engine)
             && self.host_tx_driver.hardware_idle()
@@ -369,13 +395,17 @@ impl Firmware {
     fn publish_indications(&mut self, host_request_waiting: bool) {
         if let Some(status) = self.pending_indications.join_complete
             && !host_request_waiting
-            && self.transport.publish_with(|output| encode_join_complete_indication(status, output).ok())
+            && self
+                .transport
+                .publish_with(|output| encode_join_complete_indication(status, output).ok())
         {
             self.pending_indications.join_complete = None;
         }
         if self.pending_indications.channel_switch
             && !host_request_waiting
-            && self.transport.publish_with(|output| encode_switch_channel_indication(0, output).ok())
+            && self
+                .transport
+                .publish_with(|output| encode_switch_channel_indication(0, output).ok())
         {
             self.pending_indications.channel_switch = false;
         }
@@ -387,21 +417,29 @@ impl Firmware {
         }
         if let Some(event) = self.beacons.unreported()
             && !host_request_waiting
-            && self.transport.publish_with(|output| command::encode_debug_event(event.event_id(), 0, output))
+            && self
+                .transport
+                .publish_with(|output| command::encode_debug_event(event.event_id(), 0, output))
         {
             self.beacons.reported();
         }
         if let Some(average) = self.beacons.signal.unreported()
             && !host_request_waiting
             && self.transport.publish_with(|output| {
-                command::encode_debug_event(crate::signal::EVENT_RCPI_RSSI, u32::from(average), output)
+                command::encode_debug_event(
+                    crate::signal::EVENT_RCPI_RSSI,
+                    u32::from(average),
+                    output,
+                )
             })
         {
             self.beacons.signal.reported();
         }
         if self.ap.multicast_start_owed()
             && !host_request_waiting
-            && self.transport.publish_with(|output| crate::wsm::encode_multicast_start_indication(output).ok())
+            && self
+                .transport
+                .publish_with(|output| crate::wsm::encode_multicast_start_indication(output).ok())
         {
             self.ap.multicast_start_published();
         }
@@ -419,7 +457,8 @@ impl Firmware {
         if let Some((packet_id, status, tx_rate, ack_failures)) = self.pending_tx_confirmation
             && !host_request_waiting
             && self.transport.publish_with(|output| {
-                encode_xr819_tx_confirm_details(packet_id, status, tx_rate, ack_failures, output).ok()
+                encode_xr819_tx_confirm_details(packet_id, status, tx_rate, ack_failures, output)
+                    .ok()
             })
         {
             self.pending_tx_confirmation = None;
@@ -448,7 +487,8 @@ impl Firmware {
         if count == 0 {
             return;
         }
-        let Ok(length) = encode_multi_tx_confirm_header(format, count, self.response_scratch) else {
+        let Ok(length) = encode_multi_tx_confirm_header(format, count, self.response_scratch)
+        else {
             return;
         };
         let mut first_release = None;
@@ -509,7 +549,8 @@ impl Firmware {
         let report = {
             tx::service_active_probe(
                 self.tx_engine,
-                self.configuration.template(crate::configuration::TEMPLATE_PROBE_REQUEST),
+                self.configuration
+                    .template(crate::configuration::TEMPLATE_PROBE_REQUEST),
                 opportunity,
                 &probe_ssid[..ssid_length.unwrap_or(0)],
                 32,
@@ -544,7 +585,8 @@ impl Firmware {
             tx::ActiveProbeReport::Idle | tx::ActiveProbeReport::Servicing => {}
         }
 
-        let diagnostics = self.radio.diagnostic_word() | tx::active_probe_diagnostic_word(self.tx_engine);
+        let diagnostics =
+            self.radio.diagnostic_word() | tx::active_probe_diagnostic_word(self.tx_engine);
         if let Some(completion) = self.pending_scan_completion
             && !host_request_waiting
             && self.transport.publish_with(|output| {
@@ -574,11 +616,11 @@ impl Firmware {
         if self.pending_scan_completion.is_none()
             && (!host_request_waiting || self.transport.spare_publications() > 1)
         {
-            if let (Some(if_id), Some(channel)) = (self.scan.active_interface(), self.scan.active_channel())
+            if let (Some(if_id), Some(channel)) =
+                (self.scan.active_interface(), self.scan.active_channel())
             {
                 if self.transport.publication_available() {
-                    if let Some(indication) = self.radio.poll_scan_indication(if_id, channel)
-                    {
+                    if let Some(indication) = self.radio.poll_scan_indication(if_id, channel) {
                         self.transport.publish_radio(indication);
                     }
                 }
@@ -586,15 +628,14 @@ impl Firmware {
                 let channel = vif::snapshot(if_id).map(|state| state.channel).unwrap_or(0);
                 let publication_available = self.transport.publication_available();
                 if publication_available
-                    && let Some(indication) =
-                        self.radio.poll_joined_indication(
-                            if_id,
-                            channel,
-                            &self.tx_engine.ba,
-                            &mut self.beacons,
-                            &mut self.power_save,
-                            self.crypto,
-                        )
+                    && let Some(indication) = self.radio.poll_joined_indication(
+                        if_id,
+                        channel,
+                        &self.tx_engine.ba,
+                        &mut self.beacons,
+                        &mut self.power_save,
+                        self.crypto,
+                    )
                 {
                     self.transport.publish_radio(indication);
                 }

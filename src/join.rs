@@ -44,8 +44,7 @@ pub fn activate_sta(
         let _ = crate::vif::teardown(interface);
         return Err(JoinError::Channel);
     }
-    crate::vif::activate_sta(interface, request, station_id)
-        .map_err(|_| JoinError::VifState)?;
+    crate::vif::activate_sta(interface, request, station_id).map_err(|_| JoinError::VifState)?;
     if !program_joined_mac(interface, request.bssid) {
         let _ = crate::vif::teardown(interface);
         return Err(JoinError::VifState);

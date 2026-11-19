@@ -58,7 +58,12 @@ impl States {
             states: [const { None }; HOST_CONTEXT_COUNT],
             summary: Summary {
                 dirty: Cell::new(0),
-                masks: Cell::new(Masks { occupied: 0, classified: 0, pending: 0, confirming: 0 }),
+                masks: Cell::new(Masks {
+                    occupied: 0,
+                    classified: 0,
+                    pending: 0,
+                    confirming: 0,
+                }),
                 claims: [const { Cell::new(Claim::None) }; HOST_CONTEXT_COUNT],
                 sequences: [const { Cell::new(None) }; HOST_CONTEXT_COUNT],
                 owners: Cell::new(None),
@@ -111,7 +116,10 @@ impl States {
                 if let Some((stream, sequence)) = self.summary.sequences[index].get() {
                     let start = &starts[stream];
                     // Older, counting modulo 4096.
-                    if start.get().is_none_or(|start| start.wrapping_sub(sequence) & 0x0fff < 0x0800) {
+                    if start
+                        .get()
+                        .is_none_or(|start| start.wrapping_sub(sequence) & 0x0fff < 0x0800)
+                    {
                         start.set(Some(sequence));
                     }
                 }
@@ -162,17 +170,29 @@ impl IndexMut<usize> for States {
 
 /// One entry's contribution: its mask bits (set in `masks`), its hardware
 /// slot claim and its BlockAck stream and sequence number.
-fn evaluate(state: &Option<HostTxState>, bit: u32, masks: &mut Masks) -> (Claim, Option<(usize, u16)>) {
+fn evaluate(
+    state: &Option<HostTxState>,
+    bit: u32,
+    masks: &mut Masks,
+) -> (Claim, Option<(usize, u16)>) {
     let Some(state) = state else {
         return (Claim::None, None);
     };
     masks.occupied |= bit;
     let (retained, claim) = match state {
-        HostTxState::Reserved { retained, reservation } => (retained, Claim::Slot(reservation.pipe(), reservation.slot())),
+        HostTxState::Reserved {
+            retained,
+            reservation,
+        } => (
+            retained,
+            Claim::Slot(reservation.pipe(), reservation.slot()),
+        ),
         HostTxState::Owned { retained, hardware } => {
             match retained.phase() {
                 tx::HostTxPhase::Classified if hardware.is_none() => masks.classified |= bit,
-                tx::HostTxPhase::PostCryptoQueued | tx::HostTxPhase::PendingEligible if hardware.is_none() => {
+                tx::HostTxPhase::PostCryptoQueued | tx::HostTxPhase::PendingEligible
+                    if hardware.is_none() =>
+                {
                     masks.pending |= bit
                 }
                 _ => {}

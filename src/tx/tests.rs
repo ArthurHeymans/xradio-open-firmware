@@ -128,7 +128,11 @@ impl Hw for MockHw {
 fn programmed_pipes() -> Pipes {
     let pipes = Pipes::new();
     for pipe in 0..4_u8 {
-        pipes.reset(pipe, 0, crate::platform::tx_ring_register(usize::from(pipe), 0) as u32);
+        pipes.reset(
+            pipe,
+            0,
+            crate::platform::tx_ring_register(usize::from(pipe), 0) as u32,
+        );
     }
     pipes
 }
@@ -143,9 +147,12 @@ fn mac_pipe_service_executor_preserves_pointer_and_low_nibble_order() {
     pipes.pipe(2).slot(1).frame.set(context);
     let mut calls = std::vec::Vec::new();
 
-    execute_mac_pipe_service(&mut mmio, &pipes, SchedulerWord::new(0x0f), |descriptor, frame| {
-        calls.push((descriptor, frame))
-    });
+    execute_mac_pipe_service(
+        &mut mmio,
+        &pipes,
+        SchedulerWord::new(0x0f),
+        |descriptor, frame| calls.push((descriptor, frame)),
+    );
 
     assert_eq!((pipes.current_pipe.get(), pipes.current_slot.get()), (2, 1));
     assert_eq!(calls.len(), 3);
@@ -161,7 +168,9 @@ fn mac_pipe_service_executor_middle_publishes_quantum_before_ack() {
     pipes.pipe(3).current.set(2);
     let mut calls = 0;
 
-    execute_mac_pipe_service(&mut mmio, &pipes, SchedulerWord::new(0x0080), |_, _| calls += 1);
+    execute_mac_pipe_service(&mut mmio, &pipes, SchedulerWord::new(0x0080), |_, _| {
+        calls += 1
+    });
 
     assert_eq!(mmio.writes[0], (quantum_register(3), PIPE_QUANTUM));
     assert_eq!(mmio.writes[1], (PIPE_IRQ_TRIGGER, 1 << 28));
@@ -218,11 +227,23 @@ fn stopping_a_ring_moves_both_cursors_past_the_armed_batch() {
     record.last.set(3);
     let ring = record.hardware_ring(2).unwrap();
     let mut mmio = MockHw::new();
-    mmio.set(ring.cursor_and_pending_mask(), 0xc000_0abc | 3 << 24 | 2 << 27);
+    mmio.set(
+        ring.cursor_and_pending_mask(),
+        0xc000_0abc | 3 << 24 | 2 << 27,
+    );
     assert_eq!(stop_pipe_ring(&mut mmio, &pipes, 2), Some(0));
-    assert_eq!(mmio.writes[0], (ring.inactive_sentinel(), PIPE_RETRY_INACTIVE_SENTINEL));
-    assert_eq!(mmio.writes[1], (PIPE_IRQ_PENDING, 0_u32.wrapping_sub(0x4450)));
-    assert_eq!(mmio.writes[2], (ring.cursor_and_pending_mask(), 0xc000_0abc));
+    assert_eq!(
+        mmio.writes[0],
+        (ring.inactive_sentinel(), PIPE_RETRY_INACTIVE_SENTINEL)
+    );
+    assert_eq!(
+        mmio.writes[1],
+        (PIPE_IRQ_PENDING, 0_u32.wrapping_sub(0x4450))
+    );
+    assert_eq!(
+        mmio.writes[2],
+        (ring.cursor_and_pending_mask(), 0xc000_0abc)
+    );
 }
 
 #[test]
@@ -264,10 +285,7 @@ fn hardware_ring_identity_is_exact_for_each_pipe() {
         assert_eq!(TxHardwareRingAddress::for_pipe(pipe, expected + 0x80), None);
     }
     assert_eq!(
-        TxHardwareRingAddress::for_pipe(
-            4,
-            crate::platform::tx_ring_register(0, 0) as u32,
-        ),
+        TxHardwareRingAddress::for_pipe(4, crate::platform::tx_ring_register(0, 0) as u32,),
         None,
     );
 }
@@ -298,9 +316,18 @@ fn status_hook_reset_follows_the_completion_gates_only() {
         OrdinaryTxPipeStatusPlan::Complete { .. }
     ));
     for ineligible in [
-        OrdinaryTxPipeStatusInput { pipe_active: false, ..input },
-        OrdinaryTxPipeStatusInput { slot_state: 5, ..input },
-        OrdinaryTxPipeStatusInput { expected_status: 6, ..input },
+        OrdinaryTxPipeStatusInput {
+            pipe_active: false,
+            ..input
+        },
+        OrdinaryTxPipeStatusInput {
+            slot_state: 5,
+            ..input
+        },
+        OrdinaryTxPipeStatusInput {
+            expected_status: 6,
+            ..input
+        },
     ] {
         assert_eq!(
             plan_ordinary_tx_pipe_status(ineligible, 4),
@@ -424,12 +451,22 @@ fn protected_pair_wraps_arms_once_and_retires_only_one_context() {
     context.ack_duration.set(44);
     context.total_airtime.set(144);
     context.terminal_status.set(STATUS_PENDING);
-    for (kind, response) in [(Protection::Rts, 0x11), (Protection::CtsToSelf, 0x11), (Protection::CtsToSelf, 0xff)] {
+    for (kind, response) in [
+        (Protection::Rts, 0x11),
+        (Protection::CtsToSelf, 0x11),
+        (Protection::CtsToSelf, 0xff),
+    ] {
         let mut mmio = MockHw::new();
         let pipes = programmed_pipes();
         let pipe = pipes.pipe(0);
         context.frame_kind.set(response);
-        let data = SingleFramePasTiming { payload_base: 100, payload_extended: 110, ack: 44, total_airtime: 144, frame_kind: response };
+        let data = SingleFramePasTiming {
+            payload_base: 100,
+            payload_extended: 110,
+            ack: 44,
+            total_airtime: 144,
+            frame_kind: response,
+        };
         let prefix = ProtectionTiming::compute(kind, 0, 0x17, data);
         context.protection.set(Some(prefix));
         pipe.producer.set(3);
@@ -441,9 +478,24 @@ fn protected_pair_wraps_arms_once_and_retires_only_one_context() {
         assert_eq!(pipes.active_tx.get(), 2);
         assert_eq!(pipe.slot(3).duration.get(), prefix.slot_duration());
         let ring = pipe.hardware_ring(0).unwrap();
-        assert_eq!(mmio.writes[..mmio.write_count].iter().filter(|&&(address, _)| address == PIPE_IRQ_TRIGGER).count(), 1);
-        assert_eq!(mmio.writes[..mmio.write_count].iter().filter(|&&(address, value)| address == ring.go() && value == 1).count(), 1);
-        assert_eq!(mmio.get(packet_ram::tx_command(0, 3) as u32 + 4) & 0xff, if kind == Protection::Rts { 0x86 } else { 0 });
+        assert_eq!(
+            mmio.writes[..mmio.write_count]
+                .iter()
+                .filter(|&&(address, _)| address == PIPE_IRQ_TRIGGER)
+                .count(),
+            1
+        );
+        assert_eq!(
+            mmio.writes[..mmio.write_count]
+                .iter()
+                .filter(|&&(address, value)| address == ring.go() && value == 1)
+                .count(),
+            1
+        );
+        assert_eq!(
+            mmio.get(packet_ram::tx_command(0, 3) as u32 + 4) & 0xff,
+            if kind == Protection::Rts { 0x86 } else { 0 }
+        );
         assert_eq!(retire_command_slot(&pipes, 0, 3), None);
         assert_eq!(pipes.active_tx.get(), 1);
         assert_eq!(context.terminal_status.get(), STATUS_PENDING);
@@ -454,11 +506,20 @@ fn protected_pair_wraps_arms_once_and_retires_only_one_context() {
         retry_mmio.set(ring.cursor_and_pending_mask(), cursor);
         execute_protected_retry(&mut retry_mmio, &pipes, 0, id, 0x100, true);
         assert_eq!(retry_mmio.get(ring.cursor_and_pending_mask()), 0x5800_0006);
-        assert_eq!(retry_mmio.get(PIPE_IRQ_PENDING), 0_u32.wrapping_sub(0x100 + 0xf010));
+        assert_eq!(
+            retry_mmio.get(PIPE_IRQ_PENDING),
+            0_u32.wrapping_sub(0x100 + 0xf010)
+        );
         assert_eq!(pipe.current.get(), 3);
         assert_eq!(pipes.active_tx.get(), 2);
-        assert!(!retry_mmio.writes[..retry_mmio.write_count].iter().any(|&(address, _)|
-            [ring.duration_fifo(), ring.go(), ring.inactive_sentinel()].contains(&address)));
+        assert!(
+            !retry_mmio.writes[..retry_mmio.write_count]
+                .iter()
+                .any(
+                    |&(address, _)| [ring.duration_fifo(), ring.go(), ring.inactive_sentinel()]
+                        .contains(&address)
+                )
+        );
         if kind == Protection::Rts {
             // A failed RTS retries just that slot and leaves data accounting alone.
             let mut rts_mmio = MockHw::new();
@@ -475,7 +536,10 @@ fn protected_pair_wraps_arms_once_and_retires_only_one_context() {
             cck_mmio.set(ring.cursor_and_pending_mask(), cursor);
             execute_protected_retry(&mut cck_mmio, &pipes, 0, id, 0x100, false);
             assert_eq!(cck_mmio.get(ring.cursor_and_pending_mask()), cursor & !1);
-            assert_eq!(cck_mmio.get(packet_ram::tx_command(0, 3) as u32 + 8), 0xc400_0000);
+            assert_eq!(
+                cck_mmio.get(packet_ram::tx_command(0, 3) as u32 + 8),
+                0xc400_0000
+            );
             assert_eq!(pipe.current.get(), 0);
             assert_eq!(pipes.active_tx.get(), 1);
         }
@@ -491,11 +555,22 @@ fn protected_pair_wraps_arms_once_and_retires_only_one_context() {
 #[test]
 fn aggregates_omit_cts_but_never_discard_requested_rts() {
     let context = ContextId::host(25).unwrap().get();
-    let data = SingleFramePasTiming { payload_base: 100, payload_extended: 110, ack: 44, total_airtime: 144, frame_kind: 0x11 };
+    let data = SingleFramePasTiming {
+        payload_base: 100,
+        payload_extended: 110,
+        ack: 44,
+        total_airtime: 144,
+        frame_kind: 0x11,
+    };
     context.payload_base.set(data.payload_base);
     context.ack_duration.set(data.ack);
     context.flags.set(0x8808);
-    context.protection.set(Some(ProtectionTiming::compute(Protection::CtsToSelf, 0, 0x17, data)));
+    context.protection.set(Some(ProtectionTiming::compute(
+        Protection::CtsToSelf,
+        0,
+        0x17,
+        data,
+    )));
     assert!(omit_aggregate_cts(context));
     assert_eq!(context.flags.get(), 8);
     assert_eq!(context.protection.get(), None);
@@ -697,9 +772,8 @@ fn single_frame_pas_timing_distinguishes_probe_and_ack_classes() {
         u32::from(probe.payload_base) * 0x8000
     );
 
-    let authentication =
-        compute_single_frame_pas_timing(0x117, 0, 30, 0x0080_1000, 0x2c, false)
-            .unwrap_or_else(|| panic!("missing authentication timing"));
+    let authentication = compute_single_frame_pas_timing(0x117, 0, 30, 0x0080_1000, 0x2c, false)
+        .unwrap_or_else(|| panic!("missing authentication timing"));
     assert_eq!(authentication.frame_kind, 0x11);
     assert_eq!(authentication.ack, 0x2c);
     assert_eq!(
@@ -730,12 +804,18 @@ fn single_frame_slot_accepts_both_ack_and_no_ack_frame_kinds() {
 #[test]
 fn dot11_header_view_and_classification_make_split_boundaries_explicit() {
     assert_eq!(core::mem::size_of::<Dot11FixedHeaderLayout>(), 24);
-    assert_eq!(core::mem::offset_of!(Dot11FixedHeaderLayout, frame_control), 0);
+    assert_eq!(
+        core::mem::offset_of!(Dot11FixedHeaderLayout, frame_control),
+        0
+    );
     assert_eq!(core::mem::offset_of!(Dot11FixedHeaderLayout, duration), 2);
     assert_eq!(core::mem::offset_of!(Dot11FixedHeaderLayout, address_1), 4);
     assert_eq!(core::mem::offset_of!(Dot11FixedHeaderLayout, address_2), 10);
     assert_eq!(core::mem::offset_of!(Dot11FixedHeaderLayout, address_3), 16);
-    assert_eq!(core::mem::offset_of!(Dot11FixedHeaderLayout, sequence_control), 22);
+    assert_eq!(
+        core::mem::offset_of!(Dot11FixedHeaderLayout, sequence_control),
+        22
+    );
 
     let frame = TxFrameAddress::new(0x0901_4fe8);
     assert_eq!(frame.frame_control(), 0x0901_4fe8);
@@ -745,13 +825,55 @@ fn dot11_header_view_and_classification_make_split_boundaries_explicit() {
     assert_eq!(frame.sequence_control(), 0x0901_4ffe);
     assert_eq!(frame.field(24), 0x0901_5000);
 
-    assert_eq!(classify_dot11_header(0x0008, false), Dot11HeaderShape { length: 24, qos_data: false });
-    assert_eq!(classify_dot11_header(0x0088, false), Dot11HeaderShape { length: 26, qos_data: true });
-    assert_eq!(classify_dot11_header(0x8088, false), Dot11HeaderShape { length: 30, qos_data: true });
-    assert_eq!(classify_dot11_header(0x0308, false), Dot11HeaderShape { length: 30, qos_data: false });
-    assert_eq!(classify_dot11_header(0x0388, false), Dot11HeaderShape { length: 32, qos_data: true });
-    assert_eq!(classify_dot11_header(0x8388, false), Dot11HeaderShape { length: 36, qos_data: true });
-    assert_eq!(classify_dot11_header(0x0088, true), Dot11HeaderShape { length: 24, qos_data: false });
+    assert_eq!(
+        classify_dot11_header(0x0008, false),
+        Dot11HeaderShape {
+            length: 24,
+            qos_data: false
+        }
+    );
+    assert_eq!(
+        classify_dot11_header(0x0088, false),
+        Dot11HeaderShape {
+            length: 26,
+            qos_data: true
+        }
+    );
+    assert_eq!(
+        classify_dot11_header(0x8088, false),
+        Dot11HeaderShape {
+            length: 30,
+            qos_data: true
+        }
+    );
+    assert_eq!(
+        classify_dot11_header(0x0308, false),
+        Dot11HeaderShape {
+            length: 30,
+            qos_data: false
+        }
+    );
+    assert_eq!(
+        classify_dot11_header(0x0388, false),
+        Dot11HeaderShape {
+            length: 32,
+            qos_data: true
+        }
+    );
+    assert_eq!(
+        classify_dot11_header(0x8388, false),
+        Dot11HeaderShape {
+            length: 36,
+            qos_data: true
+        }
+    );
+    assert_eq!(
+        classify_dot11_header(0x0088, true),
+        Dot11HeaderShape {
+            length: 24,
+            qos_data: false
+        }
+    );
 }
 
 #[test]
@@ -764,13 +886,19 @@ fn tx_frame_validation_rejects_short_frames_aliases_and_range_ends() {
         validated_tx_frame(0x0901_4fe8, CONTROL_FRAME_MIN_LENGTH).map(TxFrameAddress::raw),
         Some(0x0901_4fe8),
     );
-    assert_eq!(validated_tx_frame(0x0901_4fe8, CONTROL_FRAME_MIN_LENGTH - 1), None);
+    assert_eq!(
+        validated_tx_frame(0x0901_4fe8, CONTROL_FRAME_MIN_LENGTH - 1),
+        None
+    );
     assert_eq!(validated_tx_frame(0x0001_4fe8, 42), None);
     assert_eq!(
         validated_tx_frame(packet_ram::RUNTIME_CPU_END - 24, 24).map(TxFrameAddress::raw),
         Some(packet_ram::RUNTIME_CPU_END - 24),
     );
-    assert_eq!(validated_tx_frame(packet_ram::RUNTIME_CPU_END - 23, 24), None);
+    assert_eq!(
+        validated_tx_frame(packet_ram::RUNTIME_CPU_END - 23, 24),
+        None
+    );
 }
 
 #[test]
@@ -783,13 +911,55 @@ fn dot11_header_shapes_keep_software_parsing_separate_from_descriptor_split() {
     assert_eq!(frame.sequence_control(), 0x0901_4ffe);
     assert_eq!(frame.field(24), 0x0901_5000);
 
-    assert_eq!(classify_dot11_header(0x0008, false), Dot11HeaderShape { length: 24, qos_data: false });
-    assert_eq!(classify_dot11_header(0x0308, false), Dot11HeaderShape { length: 30, qos_data: false });
-    assert_eq!(classify_dot11_header(0x0088, false), Dot11HeaderShape { length: 26, qos_data: true });
-    assert_eq!(classify_dot11_header(0x8088, false), Dot11HeaderShape { length: 30, qos_data: true });
-    assert_eq!(classify_dot11_header(0x0388, false), Dot11HeaderShape { length: 32, qos_data: true });
-    assert_eq!(classify_dot11_header(0x8388, false), Dot11HeaderShape { length: 36, qos_data: true });
-    assert_eq!(classify_dot11_header(0x0088, true), Dot11HeaderShape { length: 24, qos_data: false });
+    assert_eq!(
+        classify_dot11_header(0x0008, false),
+        Dot11HeaderShape {
+            length: 24,
+            qos_data: false
+        }
+    );
+    assert_eq!(
+        classify_dot11_header(0x0308, false),
+        Dot11HeaderShape {
+            length: 30,
+            qos_data: false
+        }
+    );
+    assert_eq!(
+        classify_dot11_header(0x0088, false),
+        Dot11HeaderShape {
+            length: 26,
+            qos_data: true
+        }
+    );
+    assert_eq!(
+        classify_dot11_header(0x8088, false),
+        Dot11HeaderShape {
+            length: 30,
+            qos_data: true
+        }
+    );
+    assert_eq!(
+        classify_dot11_header(0x0388, false),
+        Dot11HeaderShape {
+            length: 32,
+            qos_data: true
+        }
+    );
+    assert_eq!(
+        classify_dot11_header(0x8388, false),
+        Dot11HeaderShape {
+            length: 36,
+            qos_data: true
+        }
+    );
+    assert_eq!(
+        classify_dot11_header(0x0088, true),
+        Dot11HeaderShape {
+            length: 24,
+            qos_data: false
+        }
+    );
 }
 
 #[test]
@@ -831,7 +1001,14 @@ fn internal_completion_status_matches_vendor_wsm_switch_table() {
 #[test]
 fn sequence_counters_advance_per_link_and_tid_and_wrap() {
     let counters = SequenceCounters::new();
-    assert_eq!([counters.next(9, 0), counters.next(9, 0), counters.next(9, 5)], [0, 0x10, 0]);
+    assert_eq!(
+        [
+            counters.next(9, 0),
+            counters.next(9, 0),
+            counters.next(9, 5)
+        ],
+        [0, 0x10, 0]
+    );
     for _ in 2..4096 {
         counters.next(0, 1);
     }
@@ -849,6 +1026,9 @@ fn slot_owners_are_served_round_robin_from_the_cursor() {
     assert_eq!(owners.next_slot_owner(eligible, 0), Some((1, 3)));
     assert_eq!(owners.next_slot_owner(eligible, 2), Some((10, 7)));
     assert_eq!(owners.next_slot_owner(eligible, 11), Some((1, 3)));
-    assert_eq!(owners.next_slot_owner(eligible & !(1 << 1), 11), Some((10, 7)));
+    assert_eq!(
+        owners.next_slot_owner(eligible & !(1 << 1), 11),
+        Some((10, 7))
+    );
     assert_eq!(owners.next_slot_owner(0, 0), None);
 }

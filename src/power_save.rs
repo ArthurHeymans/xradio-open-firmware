@@ -13,7 +13,9 @@
 pub enum Mode {
     Active,
     /// Sleep after `idle_us` without traffic.
-    PowerSave { idle_us: u32 },
+    PowerSave {
+        idle_us: u32,
+    },
 }
 
 /// SET_PM modes: active, legacy PS and fast PS (bit 7).
@@ -42,9 +44,15 @@ impl Mode {
     /// PS polls with PS-Polls in the vendor; here it is dynamic too.
     pub fn from_set_pm(mode: u8, fast_idle_period: u8) -> Self {
         match mode {
-            PSM_PS => Mode::PowerSave { idle_us: DEFAULT_IDLE_US },
+            PSM_PS => Mode::PowerSave {
+                idle_us: DEFAULT_IDLE_US,
+            },
             PSM_FAST_PS => Mode::PowerSave {
-                idle_us: if fast_idle_period == 0 { DEFAULT_IDLE_US } else { u32::from(fast_idle_period) * 500 },
+                idle_us: if fast_idle_period == 0 {
+                    DEFAULT_IDLE_US
+                } else {
+                    u32::from(fast_idle_period) * 500
+                },
             },
             _ => Mode::Active,
         }
@@ -93,21 +101,29 @@ struct BeaconClock {
 
 impl BeaconClock {
     fn next(self) -> u32 {
-        self.received.wrapping_sub((self.timestamp % u64::from(self.interval)) as u32).wrapping_add(self.interval)
+        self.received
+            .wrapping_sub((self.timestamp % u64::from(self.interval)) as u32)
+            .wrapping_add(self.interval)
     }
 
     fn follows(self, previous: Self) -> bool {
-        if self.interval != previous.interval || self.period != previous.period || self.timestamp <= previous.timestamp {
+        if self.interval != previous.interval
+            || self.period != previous.period
+            || self.timestamp <= previous.timestamp
+        {
             return false;
         }
-        let steps = self.timestamp / u64::from(self.interval) - previous.timestamp / u64::from(self.interval);
+        let steps = self.timestamp / u64::from(self.interval)
+            - previous.timestamp / u64::from(self.interval);
         let elapsed = self.timestamp - previous.timestamp;
         let local = self.received.wrapping_sub(previous.received);
         (1..=u64::from(MAX_PERIODS)).contains(&steps)
             && elapsed < i32::MAX as u64
             && (i64::from(local) - elapsed as i64).abs() <= i64::from(CLOCK_TOLERANCE_US)
-            && self.count == ((u64::from(previous.count) + u64::from(self.period) - steps % u64::from(self.period))
-                % u64::from(self.period)) as u8
+            && self.count
+                == ((u64::from(previous.count) + u64::from(self.period)
+                    - steps % u64::from(self.period))
+                    % u64::from(self.period)) as u8
     }
 
     fn margin(self, periods: u8) -> u32 {
@@ -185,7 +201,9 @@ impl StationPowerSave {
     /// The halfword at 2 is an adaptive ceiling, NOT the association listen
     /// interval. Accept it but do not implement adaptation (vendor 0x1960).
     pub fn set_beacon_period(&mut self, data: &[u8]) -> bool {
-        let [periods, _, _, _] = data else { return false };
+        let [periods, _, _, _] = data else {
+            return false;
+        };
         self.periods = (*periods).clamp(1, MAX_PERIODS);
         self.invalidate_beacon();
         true
@@ -197,13 +215,17 @@ impl StationPowerSave {
         // Frame control 0x00 (association) or 0x20 (reassociation); the
         // listen interval follows the capabilities in both.
         let request = matches!(frame.first(), Some(0x00 | 0x20));
-        if !request || frame.get(4..10) != Some(ap.as_slice()) || frame.get(16..22) != Some(ap.as_slice()) {
+        if !request
+            || frame.get(4..10) != Some(ap.as_slice())
+            || frame.get(16..22) != Some(ap.as_slice())
+        {
             return;
         }
         // No new sleep notice until SET_BSS_PARAMS confirms an association.
         self.aid = 0;
-        self.association_periods =
-            frame.get(26..28).map_or(1, |interval| u16::from_le_bytes([interval[0], interval[1]]).max(1));
+        self.association_periods = frame.get(26..28).map_or(1, |interval| {
+            u16::from_le_bytes([interval[0], interval[1]]).max(1)
+        });
         self.invalidate_beacon();
     }
 
@@ -217,7 +239,11 @@ impl StationPowerSave {
     /// The association is gone: the next AP knows nothing of our sleep. The
     /// caller wakes a dozing receiver first.
     pub fn reset(&mut self) {
-        *self = Self { mode: self.mode, receiver: self.receiver, ..Self::new() };
+        *self = Self {
+            mode: self.mode,
+            receiver: self.receiver,
+            ..Self::new()
+        };
     }
 
     pub const fn receiver(&self) -> Receiver {
@@ -227,33 +253,50 @@ impl StationPowerSave {
     /// Whether [`Self::doze_until`] may have an answer: cheap, for every
     /// pass.
     pub fn may_doze(&self) -> bool {
-        self.receiver == Receiver::On && self.mode != Mode::Active && self.aid != 0
-            && self.ap == Ap::Asleep && self.notice.is_none() && self.beacon_seen
+        self.receiver == Receiver::On
+            && self.mode != Mode::Active
+            && self.aid != 0
+            && self.ap == Ap::Asleep
+            && self.notice.is_none()
+            && self.beacon_seen
     }
 
     /// The receiver may doze now: until when. `loss_in` is the monitor's
     /// remaining silence budget, if enabled. The caller has nothing in flight.
     pub fn doze_until(&self, now: u32, loss_in: Option<u32>) -> Option<u32> {
         let clock = self.clock?;
-        let group_done = self.group_until.is_none_or(|until| now.wrapping_sub(until) as i32 >= 0);
+        let group_done = self
+            .group_until
+            .is_none_or(|until| now.wrapping_sub(until) as i32 >= 0);
         if !self.may_doze() || !group_done {
             return None;
         }
         // Too close to the next beacon, or past it unseen: listen for it
         // rather than sleep through it.
-        if (clock.next().wrapping_sub(WAKE_MARGIN_US).wrapping_sub(now) as i32) < MIN_DOZE_US as i32 {
+        if (clock.next().wrapping_sub(WAKE_MARGIN_US).wrapping_sub(now) as i32) < MIN_DOZE_US as i32
+        {
             return None;
         }
         // Vendor 0x49b8 uses the TIM count when nonzero. Unlike the vendor,
         // also cap the fixed period by the association promise and by two.
-        let dtim = if clock.count == 0 { clock.period } else { clock.count };
-        let periods = self.periods.min(self.association_periods.min(u16::from(MAX_PERIODS)) as u8).min(dtim);
+        let dtim = if clock.count == 0 {
+            clock.period
+        } else {
+            clock.count
+        };
+        let periods = self
+            .periods
+            .min(self.association_periods.min(u16::from(MAX_PERIODS)) as u8)
+            .min(dtim);
         (1..=periods).rev().find_map(|periods| {
-            let beacon = clock.next().wrapping_add(u32::from(periods - 1) * clock.interval);
+            let beacon = clock
+                .next()
+                .wrapping_add(u32::from(periods - 1) * clock.interval);
             let margin = clock.margin(periods);
             // Leave a margin for receiving the target before BSS_LOST, not
             // merely for switching RX on. Never move the monitor's deadline.
-            let fits = loss_in.is_none_or(|left| beacon.wrapping_sub(now).saturating_add(margin) < left);
+            let fits =
+                loss_in.is_none_or(|left| beacon.wrapping_sub(now).saturating_add(margin) < left);
             let wake_at = beacon.wrapping_sub(margin);
             (fits && wake_at.wrapping_sub(now) as i32 >= MIN_DOZE_US as i32).then_some(wake_at)
         })
@@ -264,8 +307,10 @@ impl StationPowerSave {
     pub fn wants_receiver(&self, now: u32) -> bool {
         match self.receiver {
             Receiver::Dozing { wake_at } => {
-                wake_at.wrapping_sub(now) as i32 <= 0 || self.mode == Mode::Active
-                    || self.ap == Ap::Awake || self.notice.is_some()
+                wake_at.wrapping_sub(now) as i32 <= 0
+                    || self.mode == Mode::Active
+                    || self.ap == Ap::Awake
+                    || self.notice.is_some()
             }
             Receiver::On => false,
         }
@@ -295,7 +340,10 @@ impl StationPowerSave {
     pub fn on_traffic(&mut self, now: u32) {
         self.last_activity = now;
         self.ap = Ap::Awake;
-        if self.notice.is_some_and(|notice| notice.pm && notice.sent_at.is_none()) {
+        if self
+            .notice
+            .is_some_and(|notice| notice.pm && notice.sent_at.is_none())
+        {
             self.notice = None;
         }
     }
@@ -305,18 +353,23 @@ impl StationPowerSave {
     /// the receiver stays on for them.
     pub fn on_beacon(&mut self, beacon: &[u8], now: u32) {
         let tim = tim(beacon);
-        let clock = beacon_timing(beacon, now).zip(tim).map(|((_, interval), tim)| BeaconClock {
-            timestamp: u64::from_le_bytes(beacon[24..32].try_into().unwrap()),
-            received: now,
-            interval,
-            count: tim.dtim_count,
-            period: tim.dtim_period,
-        });
+        let clock = beacon_timing(beacon, now)
+            .zip(tim)
+            .map(|((_, interval), tim)| BeaconClock {
+                timestamp: u64::from_le_bytes(beacon[24..32].try_into().unwrap()),
+                received: now,
+                interval,
+                count: tim.dtim_count,
+                period: tim.dtim_period,
+            });
         // Invalid TIM/clock, changed interval/DTIM phase, or a missed target:
         // this beacon is only an anchor; the next coherent one permits doze.
         self.beacon_seen = clock.zip(self.clock).is_some_and(|(clock, previous)| {
-            let deadline = self.scheduled_wake
-                .map_or(previous.next(), |wake| wake.wrapping_add(previous.margin(MAX_PERIODS)))
+            let deadline = self
+                .scheduled_wake
+                .map_or(previous.next(), |wake| {
+                    wake.wrapping_add(previous.margin(MAX_PERIODS))
+                })
                 .wrapping_add(previous.interval / 2);
             clock.follows(previous) && (now.wrapping_sub(deadline) as i32) < 0
         });
@@ -329,7 +382,10 @@ impl StationPowerSave {
             && self.notice.is_none()
             && tim.is_some_and(|tim| tim.buffered_for(self.aid))
         {
-            self.notice = Some(Notice { pm: false, sent_at: None });
+            self.notice = Some(Notice {
+                pm: false,
+                sent_at: None,
+            });
         }
     }
 
@@ -339,11 +395,18 @@ impl StationPowerSave {
             return None;
         }
         if let Some(notice) = self.notice {
-            return (notice.sent_at.is_none() && self.retry_at.is_none_or(|at| now.wrapping_sub(at) as i32 >= 0))
-                .then_some(notice.pm);
+            return (notice.sent_at.is_none()
+                && self
+                    .retry_at
+                    .is_none_or(|at| now.wrapping_sub(at) as i32 >= 0))
+            .then_some(notice.pm);
         }
         let pm = match (self.mode, self.ap) {
-            (Mode::PowerSave { idle_us }, Ap::Awake) if now.wrapping_sub(self.last_activity) >= idle_us => true,
+            (Mode::PowerSave { idle_us }, Ap::Awake)
+                if now.wrapping_sub(self.last_activity) >= idle_us =>
+            {
+                true
+            }
             (Mode::Active, Ap::Asleep) => false,
             _ => return None,
         };
@@ -360,15 +423,26 @@ impl StationPowerSave {
 
     /// The null frame completed: acknowledged by the AP or not.
     pub fn completed(&mut self, acknowledged: bool, now: u32) {
-        let Some(notice) = self.notice.take() else { return };
+        let Some(notice) = self.notice.take() else {
+            return;
+        };
         if acknowledged {
             // A frame of ours after the null (PM clear) woke the AP again.
-            let traffic_since = notice.sent_at.is_some_and(|sent| self.last_activity.wrapping_sub(sent) as i32 > 0);
-            self.ap = if notice.pm && !traffic_since { Ap::Asleep } else { Ap::Awake };
+            let traffic_since = notice
+                .sent_at
+                .is_some_and(|sent| self.last_activity.wrapping_sub(sent) as i32 > 0);
+            self.ap = if notice.pm && !traffic_since {
+                Ap::Asleep
+            } else {
+                Ap::Awake
+            };
             self.retry_at = None;
             self.last_activity = now;
         } else {
-            self.notice = Some(Notice { sent_at: None, ..notice });
+            self.notice = Some(Notice {
+                sent_at: None,
+                ..notice
+            });
             self.retry_at = Some(now.wrapping_add(RETRY_US));
         }
     }
@@ -386,9 +460,10 @@ impl StationPowerSave {
             return Some(crate::deadline::until(at, now));
         }
         match (self.mode, self.ap) {
-            (Mode::PowerSave { idle_us }, Ap::Awake) => {
-                Some(crate::deadline::until(self.last_activity.wrapping_add(idle_us), now))
-            }
+            (Mode::PowerSave { idle_us }, Ap::Awake) => Some(crate::deadline::until(
+                self.last_activity.wrapping_add(idle_us),
+                now,
+            )),
             _ => self.notice.map(|_| 0),
         }
     }
@@ -450,7 +525,12 @@ pub fn tim(beacon: &[u8]) -> Option<Tim<'_>> {
                 [dtim_count, period, bitmap_control, bitmap @ ..]
                     if *period != 0 && dtim_count < period && !bitmap.is_empty() =>
                 {
-                    Some(Tim { dtim_count: *dtim_count, dtim_period: *period, bitmap_control: *bitmap_control, bitmap })
+                    Some(Tim {
+                        dtim_count: *dtim_count,
+                        dtim_period: *period,
+                        bitmap_control: *bitmap_control,
+                        bitmap,
+                    })
                 }
                 _ => None,
             };
@@ -553,7 +633,10 @@ mod tests {
     #[test]
     fn the_next_beacon_follows_from_the_timestamp() {
         // 300 us past a TBTT of a 102_400 us interval.
-        assert_eq!(beacon_timing(&timed_beacon(10 * 102_400 + 300, &[1, 3, 0, 0]), 50_000), Some((152_100, 102_400)));
+        assert_eq!(
+            beacon_timing(&timed_beacon(10 * 102_400 + 300, &[1, 3, 0, 0]), 50_000),
+            Some((152_100, 102_400))
+        );
         assert_eq!(beacon_timing(&beacon(&[1, 3, 0, 0]), 50_000), None);
     }
 
@@ -591,7 +674,10 @@ mod tests {
         ps.woke();
         assert_eq!(ps.doze_until(next - 2_000, None), None);
         ps.on_beacon(&timed_beacon(102_400 + 400, &[0, 3, 0, 0]), next + 100);
-        assert_eq!(ps.doze_until(next + 200, None), Some(next - 300 + 102_400 - WAKE_MARGIN_US));
+        assert_eq!(
+            ps.doze_until(next + 200, None),
+            Some(next - 300 + 102_400 - WAKE_MARGIN_US)
+        );
     }
 
     #[test]
@@ -642,9 +728,14 @@ mod tests {
                 for association in 1..=3 {
                     let mut ps = skipping(10_000, count, period);
                     ps.association_periods = association;
-                    let steps = 2.min(association as u8).min(if count == 0 { period } else { count });
+                    let steps =
+                        2.min(association as u8)
+                            .min(if count == 0 { period } else { count });
                     let target = 9_700 + u32::from(steps) * 102_400;
-                    assert_eq!(ps.doze_until(10_100, None), Some(target - WAKE_MARGIN_US - u32::from(steps - 1) * 103));
+                    assert_eq!(
+                        ps.doze_until(10_100, None),
+                        Some(target - WAKE_MARGIN_US - u32::from(steps - 1) * 103)
+                    );
                 }
             }
         }
@@ -695,7 +786,10 @@ mod tests {
         ps.woke();
         assert_eq!(ps.doze_until(200_000, monitor.wake_in(200_000)), None);
         monitor.poll(10_000 + 2 * 102_400 + 1);
-        assert_eq!(monitor.unreported(), Some(crate::beacon_loss::LinkEvent::Lost));
+        assert_eq!(
+            monitor.unreported(),
+            Some(crate::beacon_loss::LinkEvent::Lost)
+        );
     }
 
     #[test]
@@ -735,7 +829,13 @@ mod tests {
 
     #[test]
     fn invalid_or_changed_timing_and_scan_require_a_coherent_pair() {
-        for body in [&[][..], &[0, 0, 0, 0], &[3, 3, 0, 0], &[1, 4, 0, 0], &[2, 3, 0, 0]] {
+        for body in [
+            &[][..],
+            &[0, 0, 0, 0],
+            &[3, 3, 0, 0],
+            &[1, 4, 0, 0],
+            &[2, 3, 0, 0],
+        ] {
             let mut ps = skipping(10_000, 2, 3);
             ps.on_beacon(&timed_beacon(102_400 + 300, body), 112_400);
             assert_eq!(ps.doze_until(112_500, None), None);
@@ -765,14 +865,33 @@ mod tests {
     fn a_skipped_interval_can_cross_local_timer_wrap() {
         let now = u32::MAX - 50_000;
         let ps = skipping(now, 2, 3);
-        assert_eq!(ps.doze_until(now + 100, None), Some(now.wrapping_sub(300).wrapping_add(204_800 - WAKE_MARGIN_US - 103)));
+        assert_eq!(
+            ps.doze_until(now + 100, None),
+            Some(
+                now.wrapping_sub(300)
+                    .wrapping_add(204_800 - WAKE_MARGIN_US - 103)
+            )
+        );
     }
 
     #[test]
     fn set_pm_modes() {
         assert_eq!(Mode::from_set_pm(0, 0), Mode::Active);
-        assert_eq!(Mode::from_set_pm(1, 0), Mode::PowerSave { idle_us: DEFAULT_IDLE_US });
-        assert_eq!(Mode::from_set_pm(0x81, 20), Mode::PowerSave { idle_us: 10_000 });
-        assert_eq!(Mode::from_set_pm(0x81, 0), Mode::PowerSave { idle_us: DEFAULT_IDLE_US });
+        assert_eq!(
+            Mode::from_set_pm(1, 0),
+            Mode::PowerSave {
+                idle_us: DEFAULT_IDLE_US
+            }
+        );
+        assert_eq!(
+            Mode::from_set_pm(0x81, 20),
+            Mode::PowerSave { idle_us: 10_000 }
+        );
+        assert_eq!(
+            Mode::from_set_pm(0x81, 0),
+            Mode::PowerSave {
+                idle_us: DEFAULT_IDLE_US
+            }
+        );
     }
 }

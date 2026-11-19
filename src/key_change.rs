@@ -21,7 +21,9 @@ impl<'a> KeyChange<'a> {
     pub fn parse(id: u16, payload: &'a [u8]) -> Option<Self> {
         match id {
             wsm::ADD_KEY_REQ_ID => Some(Self::Add(AddKeyRequest::parse(payload).ok())),
-            wsm::REMOVE_KEY_REQ_ID => Some(Self::Remove(RemoveKeyRequest::parse(payload).ok().map(|key| key.index))),
+            wsm::REMOVE_KEY_REQ_ID => Some(Self::Remove(
+                RemoveKeyRequest::parse(payload).ok().map(|key| key.index),
+            )),
             _ => None,
         }
     }
@@ -29,14 +31,18 @@ impl<'a> KeyChange<'a> {
     pub fn progress(self, crypto: &mut Crypto, quiet: bool, since: u32, now: u32) -> Progress {
         // Deadline wins even if TX became quiet while reply storage was full.
         // A stale request must never commit after its host may have given up.
-        if now.wrapping_sub(since) >= DRAIN_US || matches!(self, Self::Add(None) | Self::Remove(None)) {
+        if now.wrapping_sub(since) >= DRAIN_US
+            || matches!(self, Self::Add(None) | Self::Remove(None))
+        {
             return Progress::Complete(STATUS_FAILURE);
         }
         if !quiet {
             return Progress::Waiting;
         }
         let status = match self {
-            Self::Add(Some(key)) => crypto.add_key(0, &key).map_or(STATUS_FAILURE, |()| STATUS_SUCCESS),
+            Self::Add(Some(key)) => crypto
+                .add_key(0, &key)
+                .map_or(STATUS_FAILURE, |()| STATUS_SUCCESS),
             Self::Remove(Some(index)) => {
                 crypto.remove_key(index);
                 STATUS_SUCCESS
@@ -70,7 +76,14 @@ mod tests {
         payload
     }
 
-    fn step(crypto: &mut Crypto, id: u16, payload: &[u8], quiet: bool, since: u32, now: u32) -> Progress {
+    fn step(
+        crypto: &mut Crypto,
+        id: u16,
+        payload: &[u8],
+        quiet: bool,
+        since: u32,
+        now: u32,
+    ) -> Progress {
         KeyChange::parse(id, payload)
             .unwrap()
             .progress(crypto, quiet, since, now)
@@ -79,7 +92,14 @@ mod tests {
     fn installed(material: u8) -> Crypto {
         let mut crypto = Crypto::new();
         assert_eq!(
-            step(&mut crypto, wsm::ADD_KEY_REQ_ID, &add_payload(material), true, 0, 0),
+            step(
+                &mut crypto,
+                wsm::ADD_KEY_REQ_ID,
+                &add_payload(material),
+                true,
+                0,
+                0
+            ),
             Progress::Complete(0)
         );
         crypto
@@ -125,10 +145,18 @@ mod tests {
             assert_eq!(sealed(&mut crypto), sealed(&mut old));
         }
         assert_eq!(
-            step(&mut crypto, wsm::ADD_KEY_REQ_ID, &new, true, 0, DRAIN_US - 1),
+            step(
+                &mut crypto,
+                wsm::ADD_KEY_REQ_ID,
+                &new,
+                true,
+                0,
+                DRAIN_US - 1
+            ),
             Progress::Complete(0)
         );
-        old.add_key(0, &AddKeyRequest::parse(&new).unwrap()).unwrap();
+        old.add_key(0, &AddKeyRequest::parse(&new).unwrap())
+            .unwrap();
         assert_eq!(sealed(&mut crypto), sealed(&mut old));
     }
 
@@ -136,7 +164,14 @@ mod tests {
     fn deadline_rejects_replacement_and_retains_old_key() {
         let mut crypto = installed(0x11);
         assert_eq!(
-            step(&mut crypto, wsm::ADD_KEY_REQ_ID, &add_payload(0x22), false, 0, DRAIN_US),
+            step(
+                &mut crypto,
+                wsm::ADD_KEY_REQ_ID,
+                &add_payload(0x22),
+                false,
+                0,
+                DRAIN_US
+            ),
             Progress::Complete(STATUS_FAILURE)
         );
         let mut expected = installed(0x11);
@@ -162,7 +197,10 @@ mod tests {
     #[test]
     fn remove_waits_and_timeout_does_not_revoke_the_old_key() {
         let mut crypto = installed(0x11);
-        for (now, expected) in [(1, Progress::Waiting), (DRAIN_US, Progress::Complete(STATUS_FAILURE))] {
+        for (now, expected) in [
+            (1, Progress::Waiting),
+            (DRAIN_US, Progress::Complete(STATUS_FAILURE)),
+        ] {
             assert_eq!(
                 step(&mut crypto, wsm::REMOVE_KEY_REQ_ID, &[0; 4], false, 0, now),
                 expected
@@ -170,10 +208,20 @@ mod tests {
         }
         assert_eq!(sealed(&mut crypto), sealed(&mut installed(0x11)));
         assert_eq!(
-            step(&mut crypto, wsm::REMOVE_KEY_REQ_ID, &[0; 4], true, DRAIN_US, DRAIN_US),
+            step(
+                &mut crypto,
+                wsm::REMOVE_KEY_REQ_ID,
+                &[0; 4],
+                true,
+                DRAIN_US,
+                DRAIN_US
+            ),
             Progress::Complete(0)
         );
-        assert_eq!(crypto.encrypt_now(&mut frame(), 0), Err(CcmpError::MissingKey));
+        assert_eq!(
+            crypto.encrypt_now(&mut frame(), 0),
+            Err(CcmpError::MissingKey)
+        );
     }
 
     #[test]
@@ -198,7 +246,9 @@ mod tests {
         let old = group(0, 1, 0x11);
         let new = group(1, 2, 0x22);
         for engine in [&mut crypto, &mut expected] {
-            engine.add_key(0, &AddKeyRequest::parse(&old).unwrap()).unwrap();
+            engine
+                .add_key(0, &AddKeyRequest::parse(&old).unwrap())
+                .unwrap();
         }
         assert_eq!(
             step(&mut crypto, wsm::ADD_KEY_REQ_ID, &new, false, 0, 1),
@@ -209,7 +259,9 @@ mod tests {
             step(&mut crypto, wsm::ADD_KEY_REQ_ID, &new, true, 0, 2),
             Progress::Complete(0)
         );
-        expected.add_key(0, &AddKeyRequest::parse(&new).unwrap()).unwrap();
+        expected
+            .add_key(0, &AddKeyRequest::parse(&new).unwrap())
+            .unwrap();
         assert_eq!(seal_group(&mut crypto), seal_group(&mut expected));
         assert_eq!(
             step(&mut crypto, wsm::REMOVE_KEY_REQ_ID, &[0; 4], true, 0, 3),
@@ -230,7 +282,14 @@ mod tests {
         );
         assert_eq!(sealed(&mut crypto), sealed(&mut installed(0x11)));
         assert_eq!(
-            step(&mut crypto, wsm::ADD_KEY_REQ_ID, &add_payload(0x22), true, 1, 2),
+            step(
+                &mut crypto,
+                wsm::ADD_KEY_REQ_ID,
+                &add_payload(0x22),
+                true,
+                1,
+                2
+            ),
             Progress::Complete(0)
         );
     }
@@ -238,7 +297,10 @@ mod tests {
     #[test]
     fn expired_request_cannot_commit_after_reply_backpressure_clears() {
         let add = add_payload(0x22);
-        for (id, payload) in [(wsm::ADD_KEY_REQ_ID, &add[..]), (wsm::REMOVE_KEY_REQ_ID, &[0; 4][..])] {
+        for (id, payload) in [
+            (wsm::ADD_KEY_REQ_ID, &add[..]),
+            (wsm::REMOVE_KEY_REQ_ID, &[0; 4][..]),
+        ] {
             let mut crypto = installed(0x11);
             assert_eq!(
                 step(&mut crypto, id, payload, false, 0, DRAIN_US - 1),
@@ -315,7 +377,14 @@ mod tests {
         };
         let epoch = job.rx_key_epoch().unwrap();
         assert_eq!(
-            step(&mut crypto, wsm::ADD_KEY_REQ_ID, &add_payload(0x22), true, 0, 0),
+            step(
+                &mut crypto,
+                wsm::ADD_KEY_REQ_ID,
+                &add_payload(0x22),
+                true,
+                0,
+                0
+            ),
             Progress::Complete(0)
         );
         assert!(matches!(crypto.poll(job), Ok(Ok(()))));

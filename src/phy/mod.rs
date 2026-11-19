@@ -11,10 +11,10 @@ mod tests;
 pub use calibration::*;
 pub use channel::*;
 
-use tock_registers::interfaces::{ReadWriteable, Readable};
 use crate::global::Global;
 use core::cell::Cell;
 use core::mem::MaybeUninit;
+use tock_registers::interfaces::{ReadWriteable, Readable};
 
 use zerocopy::byteorder::little_endian::U16;
 use zerocopy::{Immutable, IntoBytes};
@@ -111,11 +111,14 @@ impl PhyState {
         self.calibration_state.set(startup.calibration_state.get());
         self.reference_khz.set(startup.reference_khz.get());
         self.frequency_khz.set(startup.frequency_khz.get());
-        self.measurement_shift_state.set(startup.measurement_shift_state.get());
+        self.measurement_shift_state
+            .set(startup.measurement_shift_state.get());
         self.sample_width.set(startup.sample_width.get());
         self.silicon_variant.set(startup.silicon_variant.get());
-        self.temperature_denominator.set(startup.temperature_denominator.get());
-        self.temperature_offset.set(startup.temperature_offset.get());
+        self.temperature_denominator
+            .set(startup.temperature_denominator.get());
+        self.temperature_offset
+            .set(startup.temperature_offset.get());
         self.temperature.set(startup.temperature.get());
         self.retained_state.set(startup.retained_state.get());
         self.state_scale.set(startup.state_scale.get());
@@ -123,8 +126,10 @@ impl PhyState {
         self.pll_integer.set(startup.pll_integer.get());
         self.pll_fractional.set(startup.pll_fractional.get());
         self.pll_channel.set(startup.pll_channel.get());
-        self.power_limit_low_rate.set(startup.power_limit_low_rate.get());
-        self.power_limit_high_rate.set(startup.power_limit_high_rate.get());
+        self.power_limit_low_rate
+            .set(startup.power_limit_low_rate.get());
+        self.power_limit_high_rate
+            .set(startup.power_limit_high_rate.get());
     }
 }
 
@@ -152,11 +157,13 @@ pub fn calibrate(sdd: &[u8]) {
     let element = |id| crate::configuration::sdd_element(sdd, id);
     let phy = state();
     if let Some(reference) = element(0xc5).and_then(|data| <[u8; 2]>::try_from(data).ok()) {
-        phy.reference_khz.set(u32::from(u16::from_le_bytes(reference)));
+        phy.reference_khz
+            .set(u32::from(u16::from_le_bytes(reference)));
     }
     // Parameter-zero temperature fallback.
     if let Some([a, b, c, d, ..]) = element(0x46) {
-        phy.temperature_denominator.set(i16::from_le_bytes([*a, *b]));
+        phy.temperature_denominator
+            .set(i16::from_le_bytes([*a, *b]));
         phy.temperature_offset.set(i16::from_le_bytes([*c, *d]));
     }
 }
@@ -239,8 +246,7 @@ fn apply_register_list(list: &[(u32, u32)]) {
 
 fn rf_init_stage_d_mode0() {
     const BASE: usize = 0x0abc_0040;
-    let alternate = self::state().silicon_variant.get()
-        == 1;
+    let alternate = self::state().silicon_variant.get() == 1;
     write_u32(BASE - 0x3c, 0x304);
     write_u32(BASE - 0x38, if alternate { 0x9200 } else { 0x9000 });
     let remap = crate::platform::remap_window(0);
@@ -275,10 +281,7 @@ fn rf_init_stage_a_mode0() {
     write_u32(BASE + 0x30, 0xa0);
     write_u32(BASE - 0x98, 0x0800_1f01);
     write_u32(BASE - 0x90, 0x001c_0000);
-    write_u32(
-        BASE - 0xa4,
-        9,
-    );
+    write_u32(BASE - 0xa4, 9);
     write_u32(BASE + 0x14, 0x0703_0100);
     write_u32(BASE + 0x18, 0x7f3f_1f0f);
     write_u32(BASE + 0x24, 0x0000_ffff);
@@ -295,8 +298,7 @@ fn rf_init_stage_a_mode0() {
     if override_value != 0 {
         write_u32(
             0x0ac8_005c,
-            reg_read(0x0ac8_005c) & !0x7f
-                | u32::from(override_value & 0x7f),
+            reg_read(0x0ac8_005c) & !0x7f | u32::from(override_value & 0x7f),
         );
     }
     write_u32(BASE - 0xac, 0x0027_0047);
@@ -308,10 +310,7 @@ fn rf_init_stage_a_mode0() {
     write_u32(BASE - 0x44, 0x0002_4f36);
     write_u32(BASE + 0x38, 0x0002_4f36);
     write_u32(BASE - 0x3c, 0x1000);
-    write_u32(
-        BASE - 0x28,
-        0x0400_1000,
-    );
+    write_u32(BASE - 0x28, 0x0400_1000);
     write_u32(BASE - 0x38, 0x0e2c_aa32);
     write_u32(BASE - 0x34, 0x0e7c_aef2);
     write_u32(BASE - 0x30, 0x0f7c_aef2);
@@ -587,12 +586,16 @@ pub fn start_scan_stop_calibration_state() {
 
 #[cfg(target_arch = "arm")]
 pub fn begin_scan_stop_rx_disable() {
-    crate::platform::rx_dma().control.modify(crate::platform::RxDmaControl::ENABLE::CLEAR);
+    crate::platform::rx_dma()
+        .control
+        .modify(crate::platform::RxDmaControl::ENABLE::CLEAR);
 }
 
 #[cfg(target_arch = "arm")]
 pub fn scan_stop_rx_hardware_drained() -> bool {
-    let drained = !crate::platform::rx_dma().control.is_set(crate::platform::RxDmaControl::ACTIVE);
+    let drained = !crate::platform::rx_dma()
+        .control
+        .is_set(crate::platform::RxDmaControl::ACTIVE);
     if drained {
         let low_mac = crate::mac::low_mac();
         low_mac.receive_gate.set(low_mac.receive_gate.get() | 1);
@@ -639,7 +642,8 @@ pub fn initialize_mac_software_state() {
     phy.reset();
     phy.silicon_variant.set(detect_rf_silicon_variant());
     // Vendor startup mode bit 1 clears the profile-one compatibility flag.
-    phy.profile1_ready.set(u8::from(crate::platform::startup_mode() & 2 == 0));
+    phy.profile1_ready
+        .set(u8::from(crate::platform::startup_mode() & 2 == 0));
     // Vendor 0x16ca4 derives the temperature conversion from remap window two.
     let (denominator, offset) = derive_remap_timing(crate::platform::remap_window(2));
     phy.temperature_denominator.set(denominator as i16);
@@ -663,9 +667,15 @@ fn build_mode0_gain_tables() {
     apply_register_list(MODE0_INITIALIZATION_LIST);
 
     let control = reg_read(0x0ab8_0400);
-    reg_write(0x0ab8_0400, (control & 0xffff_80ff) | (table[0] & 0x0000_7f00));
+    reg_write(
+        0x0ab8_0400,
+        (control & 0xffff_80ff) | (table[0] & 0x0000_7f00),
+    );
     let boundary = reg_read(0x0ab8_0410);
-    reg_write(0x0ab8_0410, (boundary & 0xffff_ff80) | u32::from(rate_table_boundary(&table)));
+    reg_write(
+        0x0ab8_0410,
+        (boundary & 0xffff_ff80) | u32::from(rate_table_boundary(&table)),
+    );
 }
 
 pub fn initialize_mac_core_mode0() {

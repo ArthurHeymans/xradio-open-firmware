@@ -73,7 +73,8 @@ impl QosData {
     pub fn parse(frame: &[u8]) -> Option<&Self> {
         let (data, _) = Self::ref_from_prefix(frame).ok()?;
         let control = data.header.frame_control.get();
-        (control & (TYPE_SUBTYPE | MORE_FRAGMENTS) == QOS_DATA && data.header.sequence_control.get() & 0x000f == 0)
+        (control & (TYPE_SUBTYPE | MORE_FRAGMENTS) == QOS_DATA
+            && data.header.sequence_control.get() & 0x000f == 0)
             .then_some(data)
     }
 

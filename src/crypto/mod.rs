@@ -58,9 +58,12 @@ impl KeyRecord {
     };
 
     fn same_key(&self, other: &Self) -> bool {
-        self.active && other.active
-            && self.key_type == other.key_type && self.if_id == other.if_id
-            && self.peer == other.peer && self.key_id == other.key_id
+        self.active
+            && other.active
+            && self.key_type == other.key_type
+            && self.if_id == other.if_id
+            && self.peer == other.peer
+            && self.key_id == other.key_id
             && self.key == other.key
     }
 
@@ -225,7 +228,13 @@ fn rx_packet_number(frame: &[u8]) -> Option<([u8; 6], u8, bool, u8, u64)> {
     let ccmp = frame.get(header..header + CCMP_HEADER_LEN)?;
     let pn = u64::from_le_bytes([ccmp[0], ccmp[1], ccmp[4], ccmp[5], ccmp[6], ccmp[7], 0, 0]);
     let transmitter = frame.get(10..16)?.try_into().ok()?;
-    Some((transmitter, ccmp[3] >> 6, frame[4] & 1 != 0, qos_tid(frame, control).ok()?, pn))
+    Some((
+        transmitter,
+        ccmp[3] >> 6,
+        frame[4] & 1 != 0,
+        qos_tid(frame, control).ok()?,
+        pn,
+    ))
 }
 
 fn pn_bytes(value: u64) -> [u8; 6] {
@@ -259,7 +268,6 @@ pub(crate) fn tx_frame_packet_number(frame: &[u8]) -> Option<u64> {
             | (u64::from(ccmp[7]) << 40),
     )
 }
-
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Direction {
@@ -344,7 +352,9 @@ impl Crypto {
             Some(Ok(())) => 1,
             Some(Err(_)) => 2,
         };
-        let (waiting, refusals) = self.waiting.map_or((None, 0), |(direction, refusals)| (Some(direction), refusals));
+        let (waiting, refusals) = self.waiting.map_or((None, 0), |(direction, refusals)| {
+            (Some(direction), refusals)
+        });
         activity
             .with(direction(self.running))
             .with(outcome(&self.finished[0]) | outcome(&self.finished[1]) << 2)
@@ -367,8 +377,15 @@ impl Crypto {
         }
     }
 
-    pub fn add_key(&mut self, if_id: u8, request: &crate::wsm::AddKeyRequest<'_>) -> Result<(), KeyError> {
-        let record = self.keys.get_mut(usize::from(request.index)).ok_or(KeyError::InvalidIndex)?;
+    pub fn add_key(
+        &mut self,
+        if_id: u8,
+        request: &crate::wsm::AddKeyRequest<'_>,
+    ) -> Result<(), KeyError> {
+        let record = self
+            .keys
+            .get_mut(usize::from(request.index))
+            .ok_or(KeyError::InvalidIndex)?;
         let mut key = KeyRecord {
             active: true,
             key_type: request.key_type,
@@ -397,7 +414,10 @@ impl Crypto {
             key.keep_counters(record);
             key.generation = record.generation;
         } else {
-            let generation = self.last_generation.checked_add(1).ok_or(KeyError::GenerationExhausted)?;
+            let generation = self
+                .last_generation
+                .checked_add(1)
+                .ok_or(KeyError::GenerationExhausted)?;
             let replaced = *record;
             // Restore a retained identical key's counters before remembering
             // the displaced slot, which could evict that history entry.
@@ -415,7 +435,8 @@ impl Crypto {
         // its slot too, so another installed key with the same Key ID cannot
         // win by table order. cw1200 re-uploads retained keys in slot order
         // after START/JOIN; identical reinstalls must not select an old GTK.
-        if !identical && key.key_type == AES_GROUP
+        if !identical
+            && key.key_type == AES_GROUP
             && let Some(selected) = self.tx_group_slots.get_mut(usize::from(if_id))
         {
             *selected = Some(request.index);
@@ -437,7 +458,10 @@ impl Crypto {
         if !key.active {
             return;
         }
-        let slot = self.history.iter().position(|previous| previous.same_key(&key))
+        let slot = self
+            .history
+            .iter()
+            .position(|previous| previous.same_key(&key))
             .unwrap_or_else(|| {
                 let slot = self.next_history;
                 self.next_history = (slot + 1) % KEY_HISTORY;
@@ -461,11 +485,18 @@ impl Crypto {
         if key.key_type != AES_PAIRWISE {
             return 0;
         }
-        self.history.iter().chain(&self.keys)
-            .filter(|previous| previous.active && previous.key_type == AES_PAIRWISE
-                && previous.if_id == key.if_id && previous.peer == key.peer)
+        self.history
+            .iter()
+            .chain(&self.keys)
+            .filter(|previous| {
+                previous.active
+                    && previous.key_type == AES_PAIRWISE
+                    && previous.if_id == key.if_id
+                    && previous.peer == key.peer
+            })
             .map(|previous| previous.tx_pn)
-            .max().unwrap_or(0)
+            .max()
+            .unwrap_or(0)
     }
 
     /// The pairwise key of a unicast receiver, a group key otherwise: an
@@ -473,18 +504,42 @@ impl Crypto {
     fn tx_key(&mut self, if_id: u8, receiver: &[u8]) -> Option<&mut KeyRecord> {
         let group_addressed = receiver[0] & 1 != 0;
         if group_addressed {
-            let slot = self.tx_group_slots.get(usize::from(if_id)).copied().flatten()?;
-            self.keys.get_mut(usize::from(slot)).filter(|key| key.active && key.if_id == if_id && key.key_type == AES_GROUP)
+            let slot = self
+                .tx_group_slots
+                .get(usize::from(if_id))
+                .copied()
+                .flatten()?;
+            self.keys
+                .get_mut(usize::from(slot))
+                .filter(|key| key.active && key.if_id == if_id && key.key_type == AES_GROUP)
         } else {
-            self.keys.iter_mut().find(|key| key.active && key.if_id == if_id && key.key_type == AES_PAIRWISE && key.peer == receiver)
+            self.keys.iter_mut().find(|key| {
+                key.active
+                    && key.if_id == if_id
+                    && key.key_type == AES_PAIRWISE
+                    && key.peer == receiver
+            })
         }
     }
 
-    fn rx_key(&self, if_id: u8, transmitter: &[u8], key_id: u8, group_addressed: bool) -> Option<&KeyRecord> {
-        self.rx_key_index(if_id, transmitter, key_id, group_addressed).map(|index| &self.keys[index])
+    fn rx_key(
+        &self,
+        if_id: u8,
+        transmitter: &[u8],
+        key_id: u8,
+        group_addressed: bool,
+    ) -> Option<&KeyRecord> {
+        self.rx_key_index(if_id, transmitter, key_id, group_addressed)
+            .map(|index| &self.keys[index])
     }
 
-    fn rx_key_index(&self, if_id: u8, transmitter: &[u8], key_id: u8, group_addressed: bool) -> Option<usize> {
+    fn rx_key_index(
+        &self,
+        if_id: u8,
+        transmitter: &[u8],
+        key_id: u8,
+        group_addressed: bool,
+    ) -> Option<usize> {
         self.keys.iter().position(|key| {
             key.active
                 && key.if_id == if_id
@@ -501,7 +556,9 @@ impl Crypto {
     /// Check authority before a decrypted frame can affect a reorder window.
     /// Do not advance the replay counter until delivery order is known.
     pub fn rx_key_epoch_is_active(&self, if_id: u8, epoch: RxKeyEpoch) -> bool {
-        self.keys.iter().any(|key| key.active && key.if_id == if_id && key.generation == epoch.0.get())
+        self.keys
+            .iter()
+            .any(|key| key.active && key.if_id == if_id && key.generation == epoch.0.get())
     }
 
     /// Replay check of a decrypted frame on its way to the host, in the
@@ -529,7 +586,9 @@ impl Crypto {
 
     /// No transfer running, waiting or with an outcome not yet taken.
     pub fn settled(&self) -> bool {
-        self.running.is_none() && self.waiting.is_none() && self.finished.iter().all(Option::is_none)
+        self.running.is_none()
+            && self.waiting.is_none()
+            && self.finished.iter().all(Option::is_none)
     }
 
     /// Whether the engine has no transfer running; a finished one's outcome
@@ -562,7 +621,9 @@ impl Crypto {
             return false;
         }
         match self.waiting {
-            Some((waiting, refusals)) if waiting != direction && refusals < RESERVATION_REFUSALS => {
+            Some((waiting, refusals))
+                if waiting != direction && refusals < RESERVATION_REFUSALS =>
+            {
                 self.waiting = Some((waiting, refusals + 1));
                 false
             }
@@ -590,14 +651,19 @@ impl Crypto {
         if frame.len() < header + CCMP_HEADER_LEN + CCMP_MIC_LEN {
             return Err(CcmpError::MalformedFrame);
         }
-        let receiver: [u8; 6] = frame[4..10].try_into().map_err(|_| CcmpError::MalformedFrame)?;
+        let receiver: [u8; 6] = frame[4..10]
+            .try_into()
+            .map_err(|_| CcmpError::MalformedFrame)?;
         self.tx_key(if_id, &receiver).ok_or(CcmpError::MissingKey)?;
         if !self.may_start(Direction::Tx) {
             return Ok(Started::Busy);
         }
         self.encrypt_with_next_pn(frame, control, header, if_id, &receiver)?;
         self.running = Some(Direction::Tx);
-        Ok(Started::Running(Job { direction: Direction::Tx, rx_key_epoch: None }))
+        Ok(Started::Running(Job {
+            direction: Direction::Tx,
+            rx_key_epoch: None,
+        }))
     }
 
     fn encrypt_with_next_pn(
@@ -614,8 +680,16 @@ impl Crypto {
         }
         key.tx_pn += 1;
         let (key, key_id, pn) = (key.key, key.key_id, pn_bytes(key.tx_pn));
-        frame[header..header + CCMP_HEADER_LEN]
-            .copy_from_slice(&[pn[5], pn[4], 0, 0x20 | (key_id << 6), pn[3], pn[2], pn[1], pn[0]]);
+        frame[header..header + CCMP_HEADER_LEN].copy_from_slice(&[
+            pn[5],
+            pn[4],
+            0,
+            0x20 | (key_id << 6),
+            pn[3],
+            pn[2],
+            pn[1],
+            pn[0],
+        ]);
         let (aad, aad_length) = build_aad(frame, control)?;
         let transfer = Transfer {
             frame_control: control,
@@ -640,7 +714,9 @@ impl Crypto {
         if frame.len() < header + CCMP_HEADER_LEN + CCMP_MIC_LEN {
             return Err(CcmpError::MalformedFrame);
         }
-        let receiver: [u8; 6] = frame[4..10].try_into().map_err(|_| CcmpError::MalformedFrame)?;
+        let receiver: [u8; 6] = frame[4..10]
+            .try_into()
+            .map_err(|_| CcmpError::MalformedFrame)?;
         self.tx_key(if_id, &receiver).ok_or(CcmpError::MissingKey)?;
         while !self.engine_idle() {
             core::hint::spin_loop();
@@ -674,9 +750,13 @@ impl Crypto {
             .map_err(|_| CcmpError::MalformedFrame)?;
         let pn = [ccmp[7], ccmp[6], ccmp[5], ccmp[4], ccmp[1], ccmp[0]];
         let key_id = ccmp[3] >> 6;
-        let transmitter: [u8; 6] = frame[10..16].try_into().map_err(|_| CcmpError::MalformedFrame)?;
+        let transmitter: [u8; 6] = frame[10..16]
+            .try_into()
+            .map_err(|_| CcmpError::MalformedFrame)?;
         let group_addressed = frame[4] & 1 != 0;
-        let record = self.rx_key(if_id, &transmitter, key_id, group_addressed).ok_or(CcmpError::MissingKey)?;
+        let record = self
+            .rx_key(if_id, &transmitter, key_id, group_addressed)
+            .ok_or(CcmpError::MissingKey)?;
         let key = record.key;
         let epoch = RxKeyEpoch(NonZeroU32::new(record.generation).ok_or(CcmpError::MissingKey)?);
         if !self.may_start(Direction::Rx) {
@@ -694,7 +774,10 @@ impl Crypto {
         };
         self.engine.start(frame, &transfer, &mut |_, _| {})?;
         self.running = Some(Direction::Rx);
-        Ok(Started::Running(Job { direction: Direction::Rx, rx_key_epoch: Some(epoch) }))
+        Ok(Started::Running(Job {
+            direction: Direction::Rx,
+            rx_key_epoch: Some(epoch),
+        }))
     }
 
     /// The job's outcome once the engine is done with its frame; the job
@@ -750,7 +833,11 @@ mod tests {
         unsafe { crypto.start_rx(frame, if_id) }
     }
 
-    fn decrypt_rx_epoch(crypto: &mut Crypto, frame: &mut [u8], if_id: u8) -> Result<Option<RxKeyEpoch>, CcmpError> {
+    fn decrypt_rx_epoch(
+        crypto: &mut Crypto,
+        frame: &mut [u8],
+        if_id: u8,
+    ) -> Result<Option<RxKeyEpoch>, CcmpError> {
         match start_rx(crypto, frame, if_id)? {
             Started::Plain => Ok(None),
             Started::Running(job) => {
@@ -768,15 +855,23 @@ mod tests {
     }
 
     /// Decrypt only; production must also check this frame's returned epoch.
-    fn decrypt_rx_frame(crypto: &mut Crypto, frame: &mut [u8], if_id: u8) -> Result<bool, CcmpError> {
+    fn decrypt_rx_frame(
+        crypto: &mut Crypto,
+        frame: &mut [u8],
+        if_id: u8,
+    ) -> Result<bool, CcmpError> {
         decrypt_rx_epoch(crypto, frame, if_id).map(|epoch| epoch.is_some())
     }
 
     /// Counter-only fixtures model a frame authenticated with the current
     /// key. Lifecycle tests instead retain the epoch from the real RX job.
     fn accept_counter(crypto: &mut Crypto, frame: &[u8]) -> bool {
-        let Some((transmitter, key_id, group, _, _)) = rx_packet_number(frame) else { return false; };
-        let Some(key) = crypto.rx_key(0, &transmitter, key_id, group) else { return false; };
+        let Some((transmitter, key_id, group, _, _)) = rx_packet_number(frame) else {
+            return false;
+        };
+        let Some(key) = crypto.rx_key(0, &transmitter, key_id, group) else {
+            return false;
+        };
         let epoch = RxKeyEpoch(NonZeroU32::new(key.generation).unwrap());
         crypto.accept_rx_packet_number(0, frame, epoch)
     }
@@ -830,13 +925,17 @@ mod tests {
         for remove_first in [true, false] {
             let mut crypto = Crypto::new();
             let mut payload = [0_u8; 44];
-            crypto.add_key(0, &pairwise_request(&mut payload, 1, AP)).unwrap();
+            crypto
+                .add_key(0, &pairwise_request(&mut payload, 1, AP))
+                .unwrap();
             crypto.keys[1].tx_pn = 0x84ef;
             if remove_first {
                 crypto.remove_key(1);
             }
             payload[12] ^= 1;
-            crypto.add_key(0, &crate::wsm::AddKeyRequest::parse(&payload).unwrap()).unwrap();
+            crypto
+                .add_key(0, &crate::wsm::AddKeyRequest::parse(&payload).unwrap())
+                .unwrap();
             let mut frame = tx_frame();
             crypto.encrypt_now(&mut frame, 0).unwrap();
             assert_eq!(tx_frame_packet_number(&frame), Some(0x84f0));
@@ -849,25 +948,45 @@ mod tests {
         for change in [0, 1, 3] {
             let mut crypto = Crypto::new();
             let mut payload = [0_u8; 44];
-            crypto.add_key(0, &pairwise_request(&mut payload, 0, AP)).unwrap();
+            crypto
+                .add_key(0, &pairwise_request(&mut payload, 0, AP))
+                .unwrap();
             crypto.keys[0].tx_pn = 42;
             let if_id = match change {
                 0 => 1,
-                1 => { payload[4] ^= 2; 0 }
-                2 => { payload[12] ^= 1; 0 }
-                3 => { payload[0] = AES_GROUP; 0 }
-                _ => { crypto.remove_key(0); 0 }
+                1 => {
+                    payload[4] ^= 2;
+                    0
+                }
+                2 => {
+                    payload[12] ^= 1;
+                    0
+                }
+                3 => {
+                    payload[0] = AES_GROUP;
+                    0
+                }
+                _ => {
+                    crypto.remove_key(0);
+                    0
+                }
             };
-            crypto.add_key(if_id, &crate::wsm::AddKeyRequest::parse(&payload).unwrap()).unwrap();
+            crypto
+                .add_key(if_id, &crate::wsm::AddKeyRequest::parse(&payload).unwrap())
+                .unwrap();
             assert_eq!(crypto.keys[0].tx_pn, 0);
         }
         let mut crypto = Crypto::new();
         let mut payload = [0_u8; 44];
         payload[0] = AES_GROUP;
-        crypto.add_key(0, &crate::wsm::AddKeyRequest::parse(&payload).unwrap()).unwrap();
+        crypto
+            .add_key(0, &crate::wsm::AddKeyRequest::parse(&payload).unwrap())
+            .unwrap();
         crypto.keys[0].tx_pn = 42;
         payload[20] = 1;
-        crypto.add_key(0, &crate::wsm::AddKeyRequest::parse(&payload).unwrap()).unwrap();
+        crypto
+            .add_key(0, &crate::wsm::AddKeyRequest::parse(&payload).unwrap())
+            .unwrap();
         assert_eq!(crypto.keys[0].tx_pn, 0);
     }
 
@@ -995,7 +1114,11 @@ mod tests {
         let (aad, aad_length) = build_aad(&frame, 0x4208).unwrap();
         let tag = AesCcmp::new_from_slice(key)
             .unwrap()
-            .encrypt_in_place_detached(GenericArray::from_slice(&nonce), &aad[..aad_length], &mut frame[32..44])
+            .encrypt_in_place_detached(
+                GenericArray::from_slice(&nonce),
+                &aad[..aad_length],
+                &mut frame[32..44],
+            )
             .unwrap();
         frame[44..].copy_from_slice(&tag);
         frame
@@ -1007,7 +1130,9 @@ mod tests {
         payload[1] = index;
         payload[4..10].copy_from_slice(&[0x02; 6]);
         payload[12..28].copy_from_slice(&key);
-        crypto.add_key(0, &crate::wsm::AddKeyRequest::parse(&payload).unwrap()).unwrap();
+        crypto
+            .add_key(0, &crate::wsm::AddKeyRequest::parse(&payload).unwrap())
+            .unwrap();
     }
 
     /// Decrypted and accepted by the replay check, as on the way to the host.
@@ -1027,7 +1152,10 @@ mod tests {
         assert!(received_ok(&mut crypto, &key, 5000));
         crypto.remove_key(0);
         let mut next = sealed_pairwise(&key, 5001);
-        assert_eq!(decrypt_rx_frame(&mut crypto, &mut next, 0), Err(CcmpError::MissingKey));
+        assert_eq!(
+            decrypt_rx_frame(&mut crypto, &mut next, 0),
+            Err(CcmpError::MissingKey)
+        );
     }
 
     #[test]
@@ -1049,7 +1177,9 @@ mod tests {
         install_pairwise(&mut crypto, 0, old);
         assert!(received_ok(&mut crypto, &old, 300));
         let mut waiting = sealed_pairwise(&old, 301);
-        let epoch = decrypt_rx_epoch(&mut crypto, &mut waiting, 0).unwrap().unwrap();
+        let epoch = decrypt_rx_epoch(&mut crypto, &mut waiting, 0)
+            .unwrap()
+            .unwrap();
         install_pairwise(&mut crypto, 0, [0x64; 16]);
         assert!(!crypto.rx_key_epoch_is_active(0, epoch));
         assert!(!crypto.accept_rx_packet_number(0, &waiting, epoch));
@@ -1062,12 +1192,16 @@ mod tests {
         let key = [0x65; 16];
         install_group_key(&mut crypto, 0, 2, 1, key);
         let mut frame = sealed_rx_frame([0xff; 6], 1, &key);
-        let epoch = decrypt_rx_epoch(&mut crypto, &mut frame, 0).unwrap().unwrap();
+        let epoch = decrypt_rx_epoch(&mut crypto, &mut frame, 0)
+            .unwrap()
+            .unwrap();
         assert!(crypto.accept_rx_packet_number(0, &frame, epoch));
         crypto.remove_key(2);
         install_group_key(&mut crypto, 0, 2, 1, key);
         let mut replay = sealed_rx_frame([0xff; 6], 1, &key);
-        let epoch = decrypt_rx_epoch(&mut crypto, &mut replay, 0).unwrap().unwrap();
+        let epoch = decrypt_rx_epoch(&mut crypto, &mut replay, 0)
+            .unwrap()
+            .unwrap();
         assert!(!crypto.accept_rx_packet_number(0, &replay, epoch));
     }
 
@@ -1085,7 +1219,10 @@ mod tests {
         install_pairwise(&mut crypto, 1, key);
         finish(&mut crypto, job).unwrap();
         assert!(!crypto.accept_rx_packet_number(0, &waiting, epoch));
-        assert!(received_ok(&mut crypto, &key, 301), "a fresh job uses the new installation");
+        assert!(
+            received_ok(&mut crypto, &key, 301),
+            "a fresh job uses the new installation"
+        );
     }
 
     #[test]
@@ -1094,7 +1231,9 @@ mod tests {
         let key = [0x67; 16];
         install_pairwise(&mut crypto, 0, key);
         let mut waiting = sealed_pairwise(&key, 301);
-        let epoch = decrypt_rx_epoch(&mut crypto, &mut waiting, 0).unwrap().unwrap();
+        let epoch = decrypt_rx_epoch(&mut crypto, &mut waiting, 0)
+            .unwrap()
+            .unwrap();
         install_pairwise(&mut crypto, 0, key);
         assert!(crypto.rx_key_epoch_is_active(0, epoch));
         assert!(crypto.accept_rx_packet_number(0, &waiting, epoch));
@@ -1106,11 +1245,15 @@ mod tests {
         let (old, new) = ([0x68; 16], [0x69; 16]);
         install_group_key(&mut crypto, 0, 2, 1, old);
         let mut waiting = sealed_rx_frame([0xff; 6], 1, &old);
-        let epoch = decrypt_rx_epoch(&mut crypto, &mut waiting, 0).unwrap().unwrap();
+        let epoch = decrypt_rx_epoch(&mut crypto, &mut waiting, 0)
+            .unwrap()
+            .unwrap();
         install_group_key(&mut crypto, 0, 2, 1, new);
         assert!(!crypto.accept_rx_packet_number(0, &waiting, epoch));
         let mut fresh = sealed_rx_frame([0xff; 6], 1, &new);
-        let epoch = decrypt_rx_epoch(&mut crypto, &mut fresh, 0).unwrap().unwrap();
+        let epoch = decrypt_rx_epoch(&mut crypto, &mut fresh, 0)
+            .unwrap()
+            .unwrap();
         assert!(crypto.accept_rx_packet_number(0, &fresh, epoch));
     }
 
@@ -1120,7 +1263,9 @@ mod tests {
         let old = [0x72; 16];
         install_group_key(&mut crypto, 0, 2, 1, old);
         let mut waiting = sealed_rx_frame([0xff; 6], 1, &old);
-        let epoch = decrypt_rx_epoch(&mut crypto, &mut waiting, 0).unwrap().unwrap();
+        let epoch = decrypt_rx_epoch(&mut crypto, &mut waiting, 0)
+            .unwrap()
+            .unwrap();
         install_group_key(&mut crypto, 0, 3, 2, [0x73; 16]);
         assert!(crypto.accept_rx_packet_number(0, &waiting, epoch));
     }
@@ -1131,7 +1276,9 @@ mod tests {
         let key = [0x74; 16];
         install_group_key(&mut crypto, 0, 2, 1, key);
         let mut waiting = sealed_rx_frame([0xff; 6], 1, &key);
-        let epoch = decrypt_rx_epoch(&mut crypto, &mut waiting, 0).unwrap().unwrap();
+        let epoch = decrypt_rx_epoch(&mut crypto, &mut waiting, 0)
+            .unwrap()
+            .unwrap();
         install_group_key(&mut crypto, 1, 3, 1, key);
         assert!(!crypto.rx_key_epoch_is_active(1, epoch));
         assert!(!crypto.accept_rx_packet_number(1, &waiting, epoch));
@@ -1143,16 +1290,25 @@ mod tests {
         for group in [false, true] {
             let mut crypto = Crypto::new();
             let key = [0x6a; 16];
-            if group { install_group_key(&mut crypto, 0, 0, 1, key); }
-            else { install_pairwise(&mut crypto, 0, key); }
+            if group {
+                install_group_key(&mut crypto, 0, 0, 1, key);
+            } else {
+                install_pairwise(&mut crypto, 0, key);
+            }
             let epoch = crypto.keys[0].generation;
             crypto.keys[0].tx_pn = 42;
             crypto.keys[0].rx_pn = core::array::from_fn(|tid| 100 + tid as u64);
             crypto.remove_key(0);
-            if group { install_group_key(&mut crypto, 0, 1, 1, key); }
-            else { install_pairwise(&mut crypto, 1, key); }
+            if group {
+                install_group_key(&mut crypto, 0, 1, 1, key);
+            } else {
+                install_pairwise(&mut crypto, 1, key);
+            }
             assert_eq!(crypto.keys[1].tx_pn, 42);
-            assert_eq!(crypto.keys[1].rx_pn, core::array::from_fn(|tid| 100 + tid as u64));
+            assert_eq!(
+                crypto.keys[1].rx_pn,
+                core::array::from_fn(|tid| 100 + tid as u64)
+            );
             assert_ne!(crypto.keys[1].generation, epoch);
         }
     }
@@ -1169,7 +1325,10 @@ mod tests {
         crypto.keys[0].tx_pn = 1000;
         install_pairwise(&mut crypto, 0, [0; 16]);
         assert_eq!(crypto.keys[0].rx_pn, [100; 16]);
-        assert_eq!(crypto.keys[0].tx_pn, 1000, "still above this peer's other queued key");
+        assert_eq!(
+            crypto.keys[0].tx_pn, 1000,
+            "still above this peer's other queued key"
+        );
     }
 
     #[test]
@@ -1180,7 +1339,10 @@ mod tests {
         crypto.last_generation = u32::MAX;
         let mut payload = [0_u8; 44];
         let request = pairwise_request(&mut payload, 0, [0x02; 6]);
-        assert_eq!(crypto.add_key(0, &request), Err(KeyError::GenerationExhausted));
+        assert_eq!(
+            crypto.add_key(0, &request),
+            Err(KeyError::GenerationExhausted)
+        );
         assert_eq!(crypto.keys[0].key, old);
         assert!(received_ok(&mut crypto, &old, 1));
         install_pairwise(&mut crypto, 0, old); // Identical active upload needs no new epoch.
@@ -1200,7 +1362,10 @@ mod tests {
         assert!(received_ok(&mut crypto, &new, 1));
         for pn in [1, 5001, 10000] {
             let mut late = sealed_pairwise(&old, pn);
-            assert_eq!(decrypt_rx_frame(&mut crypto, &mut late, 0), Err(CcmpError::Authentication));
+            assert_eq!(
+                decrypt_rx_frame(&mut crypto, &mut late, 0),
+                Err(CcmpError::Authentication)
+            );
         }
         assert!(received_ok(&mut crypto, &new, 2));
     }
@@ -1229,7 +1394,10 @@ mod tests {
         // Only the current key serves, irrespective of packet-number ranges.
         assert!(received_ok(&mut crypto, &new, 301));
         let mut straggler = sealed_pairwise(&old, 302);
-        assert_eq!(decrypt_rx_frame(&mut crypto, &mut straggler, 0), Err(CcmpError::Authentication));
+        assert_eq!(
+            decrypt_rx_frame(&mut crypto, &mut straggler, 0),
+            Err(CcmpError::Authentication)
+        );
     }
 
     #[test]
@@ -1270,12 +1438,28 @@ mod tests {
     #[test]
     fn tx_key_class_is_selected_by_receiver_not_table_order() {
         let mut crypto = Crypto::new();
-        crypto.keys[0] = KeyRecord { active: true, key_type: AES_GROUP, key: [0x22; 16], ..KeyRecord::EMPTY };
+        crypto.keys[0] = KeyRecord {
+            active: true,
+            key_type: AES_GROUP,
+            key: [0x22; 16],
+            ..KeyRecord::EMPTY
+        };
         crypto.tx_group_slots[0] = Some(0);
-        crypto.keys[1] =
-            KeyRecord { active: true, key_type: AES_PAIRWISE, peer: [0x02; 6], key: [0x11; 16], ..KeyRecord::EMPTY };
-        assert_eq!(crypto.tx_key(0, &[0x02; 6]).map(|key| key.key), Some([0x11; 16]));
-        assert_eq!(crypto.tx_key(0, &[0xff; 6]).map(|key| key.key), Some([0x22; 16]));
+        crypto.keys[1] = KeyRecord {
+            active: true,
+            key_type: AES_PAIRWISE,
+            peer: [0x02; 6],
+            key: [0x11; 16],
+            ..KeyRecord::EMPTY
+        };
+        assert_eq!(
+            crypto.tx_key(0, &[0x02; 6]).map(|key| key.key),
+            Some([0x11; 16])
+        );
+        assert_eq!(
+            crypto.tx_key(0, &[0xff; 6]).map(|key| key.key),
+            Some([0x22; 16])
+        );
         assert!(crypto.tx_key(0, &[0x04; 6]).is_none());
     }
 
@@ -1285,7 +1469,9 @@ mod tests {
         payload[1] = index;
         payload[4..20].copy_from_slice(&key);
         payload[20] = key_id;
-        crypto.add_key(if_id, &crate::wsm::AddKeyRequest::parse(&payload).unwrap()).unwrap();
+        crypto
+            .add_key(if_id, &crate::wsm::AddKeyRequest::parse(&payload).unwrap())
+            .unwrap();
     }
 
     #[test]
@@ -1305,7 +1491,10 @@ mod tests {
         }
         // Reuse a lower slot: installation order, not table order, selects TX.
         install_group_key(&mut crypto, 0, 0, 1, [0x33; 16]);
-        assert_eq!(crypto.tx_key(0, &[0xff; 6]).map(|key| key.key), Some([0x33; 16]));
+        assert_eq!(
+            crypto.tx_key(0, &[0xff; 6]).map(|key| key.key),
+            Some([0x33; 16])
+        );
         crypto.remove_key(5);
         assert_eq!(crypto.tx_key(0, &[0xff; 6]).map(|key| key.key_id), Some(1));
     }
@@ -1315,7 +1504,10 @@ mod tests {
         let mut crypto = Crypto::new();
         install_group_key(&mut crypto, 0, 0, 1, [0x11; 16]);
         install_group_key(&mut crypto, 0, 5, 1, [0x22; 16]);
-        assert_eq!(crypto.tx_key(0, &[0xff; 6]).map(|key| key.key), Some([0x22; 16]));
+        assert_eq!(
+            crypto.tx_key(0, &[0xff; 6]).map(|key| key.key),
+            Some([0x22; 16])
+        );
         crypto.remove_key(5);
         assert!(crypto.tx_key(0, &[0xff; 6]).is_none());
     }
@@ -1342,7 +1534,10 @@ mod tests {
         install_group_key(&mut crypto, 0, 5, 2, [0x22; 16]);
         assert!(crypto.tx_key(0, &[0xff; 6]).is_none());
         install_group_key(&mut crypto, 0, 0, 1, [0x33; 16]);
-        assert_eq!(crypto.tx_key(0, &[0xff; 6]).map(|key| key.key), Some([0x33; 16]));
+        assert_eq!(
+            crypto.tx_key(0, &[0xff; 6]).map(|key| key.key),
+            Some([0x33; 16])
+        );
     }
 
     #[test]
@@ -1355,7 +1550,10 @@ mod tests {
         assert_eq!(crypto.tx_key(1, &[0xff; 6]).map(|key| key.key_id), Some(3));
         crypto.remove_key(1);
         assert!(crypto.tx_key(0, &[0xff; 6]).is_none());
-        assert_eq!(crypto.rx_key(0, &[0x02; 6], 1, true).map(|key| key.key), Some([0x11; 16]));
+        assert_eq!(
+            crypto.rx_key(0, &[0x02; 6], 1, true).map(|key| key.key),
+            Some([0x11; 16])
+        );
         assert_eq!(crypto.tx_key(1, &[0xff; 6]).map(|key| key.key_id), Some(3));
     }
 
@@ -1372,7 +1570,10 @@ mod tests {
                 ..KeyRecord::EMPTY
             };
             let mut frame = sealed_rx_frame(receiver, 0, &[0x11; 16]);
-            assert_eq!(decrypt_rx_frame(&mut crypto, &mut frame, 0), Err(CcmpError::MissingKey));
+            assert_eq!(
+                decrypt_rx_frame(&mut crypto, &mut frame, 0),
+                Err(CcmpError::MissingKey)
+            );
         }
     }
 
@@ -1416,17 +1617,19 @@ mod tests {
     fn ccmp_round_trip_preserves_reserved_header_and_mic_space() {
         let mut crypto = Crypto::new();
         let mut tx_request = [0_u8; 44];
-        crypto.add_key(
-            0,
-            &pairwise_request(&mut tx_request, 0, [0x20, 0x05, 0xb6, 0xff, 0x01, 0x43]),
-        )
-        .unwrap();
+        crypto
+            .add_key(
+                0,
+                &pairwise_request(&mut tx_request, 0, [0x20, 0x05, 0xb6, 0xff, 0x01, 0x43]),
+            )
+            .unwrap();
         let mut rx_request = [0_u8; 44];
-        crypto.add_key(
-            0,
-            &pairwise_request(&mut rx_request, 1, [0x12, 0x42, 0x2a, 0x37, 0x70, 0x07]),
-        )
-        .unwrap();
+        crypto
+            .add_key(
+                0,
+                &pairwise_request(&mut rx_request, 1, [0x12, 0x42, 0x2a, 0x37, 0x70, 0x07]),
+            )
+            .unwrap();
         let mut frame = [0_u8; 26 + 8 + 12 + 8];
         frame[..2].copy_from_slice(&0x4188_u16.to_le_bytes());
         frame[4..10].copy_from_slice(&[0x20, 0x05, 0xb6, 0xff, 0x01, 0x43]);
@@ -1450,7 +1653,9 @@ mod tests {
         let mut crypto = Crypto::new();
         for (index, peer) in [(0, AP), (1, STATION)] {
             let mut request = [0_u8; 44];
-            crypto.add_key(0, &pairwise_request(&mut request, index, peer)).unwrap();
+            crypto
+                .add_key(0, &pairwise_request(&mut request, index, peer))
+                .unwrap();
         }
         crypto
     }
@@ -1470,7 +1675,9 @@ mod tests {
     fn rx_frame() -> [u8; 54] {
         let mut sender = Crypto::new();
         let mut request = [0_u8; 44];
-        sender.add_key(0, &pairwise_request(&mut request, 0, STATION)).unwrap();
+        sender
+            .add_key(0, &pairwise_request(&mut request, 0, STATION))
+            .unwrap();
         let mut frame = tx_frame();
         frame[4..10].copy_from_slice(&STATION);
         frame[10..16].copy_from_slice(&AP);
@@ -1487,7 +1694,16 @@ mod tests {
         frame[10..16].copy_from_slice(&AP);
         frame[24] = tid;
         let pn = pn.to_le_bytes();
-        frame[26..34].copy_from_slice(&[pn[0], pn[1], 0, 0x20 | group.unwrap_or(0) << 6, pn[2], pn[3], pn[4], pn[5]]);
+        frame[26..34].copy_from_slice(&[
+            pn[0],
+            pn[1],
+            0,
+            0x20 | group.unwrap_or(0) << 6,
+            pn[2],
+            pn[3],
+            pn[4],
+            pn[5],
+        ]);
         frame
     }
 
@@ -1524,13 +1740,17 @@ mod tests {
         crypto.add_key(0, &request).unwrap();
         assert!(!accept_counter(&mut crypto, &received(0, 0x11, Some(1))));
         payload[24] = 0x20;
-        crypto.add_key(0, &crate::wsm::AddKeyRequest::parse(&payload).unwrap()).unwrap();
+        crypto
+            .add_key(0, &crate::wsm::AddKeyRequest::parse(&payload).unwrap())
+            .unwrap();
         assert!(!accept_counter(&mut crypto, &received(0, 0x20, Some(1))));
         assert!(accept_counter(&mut crypto, &received(7, 0x21, Some(1))));
         // A different key begins at its own announced RSC.
         payload[24] = 0x10;
         payload[4] ^= 1;
-        crypto.add_key(0, &crate::wsm::AddKeyRequest::parse(&payload).unwrap()).unwrap();
+        crypto
+            .add_key(0, &crate::wsm::AddKeyRequest::parse(&payload).unwrap())
+            .unwrap();
         assert!(accept_counter(&mut crypto, &received(0, 0x11, Some(1))));
     }
 
@@ -1643,13 +1863,23 @@ mod tests {
             let refused = match start_tx(&mut crypto, &mut next, 0) {
                 Err(CcmpError::PacketNumberExhausted) => true,
                 Err(other) => panic!("unexpected error: {other:?}"),
-                Ok(Started::Running(job)) => { finish(&mut crypto, job).unwrap(); false }
+                Ok(Started::Running(job)) => {
+                    finish(&mut crypto, job).unwrap();
+                    false
+                }
                 Ok(_) => false,
             };
-            assert!(refused, "exhaustion started another transfer at {:?}", tx_frame_packet_number(&next));
+            assert!(
+                refused,
+                "exhaustion started another transfer at {:?}",
+                tx_frame_packet_number(&next)
+            );
             assert_eq!(next, untouched);
             assert!(crypto.settled());
-            assert_eq!(crypto.tx_key(0, &next[4..10]).unwrap().tx_pn, 0x0000_ffff_ffff_ffff);
+            assert_eq!(
+                crypto.tx_key(0, &next[4..10]).unwrap().tx_pn,
+                0x0000_ffff_ffff_ffff
+            );
         }
     }
 
@@ -1672,7 +1902,10 @@ mod tests {
         let untouched = frame;
         match start_tx(&mut crypto, &mut frame, 0) {
             Err(CcmpError::MissingKey) => {}
-            Ok(Started::Running(job)) => { finish(&mut crypto, job).unwrap(); panic!("used a removed key"); }
+            Ok(Started::Running(job)) => {
+                finish(&mut crypto, job).unwrap();
+                panic!("used a removed key");
+            }
             _ => panic!("protected data was not rejected"),
         }
         assert_eq!(frame, untouched);
@@ -1684,7 +1917,13 @@ mod tests {
         let mut crypto = crypto_with_keys();
         let mut frame = tx_frame();
         frame[1] &= !0x40;
-        assert!(matches!(start_tx(&mut crypto, &mut frame, 0), Ok(Started::Plain)));
-        assert!(matches!(start_rx(&mut crypto, &mut frame, 0), Ok(Started::Plain)));
+        assert!(matches!(
+            start_tx(&mut crypto, &mut frame, 0),
+            Ok(Started::Plain)
+        ));
+        assert!(matches!(
+            start_rx(&mut crypto, &mut frame, 0),
+            Ok(Started::Plain)
+        ));
     }
 }

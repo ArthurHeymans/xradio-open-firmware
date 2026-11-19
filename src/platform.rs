@@ -9,8 +9,8 @@ use crate::global::Global;
 use crate::packet_ram;
 use core::cell::Cell;
 use tock_registers::interfaces::{Readable, Writeable};
-use tock_registers::{register_bitfields, register_structs};
 use tock_registers::registers::{ReadOnly, ReadWrite};
+use tock_registers::{register_bitfields, register_structs};
 
 register_bitfields! {
     u32,
@@ -162,7 +162,6 @@ fn system_control() -> &'static SystemControl {
     unsafe { &*(SYSTEM_CONTROL_BASE as *const SystemControl) }
 }
 
-
 fn timers() -> &'static Timers {
     unsafe { &*(TIMERS_BASE as *const Timers) }
 }
@@ -289,8 +288,7 @@ fn sample_remap_windows() {
     let relocated_high = (window_4 >> 28 | window_5 << 4).wrapping_add(0x166);
 
     windows[3].set((window_3 & 0xf000_0fff) | (relocated_3 << 12));
-    windows[4]
-        .set((window_4 & 0x0000_0fff) | (relocated_4 << 12) | (relocated_high << 28));
+    windows[4].set((window_4 & 0x0000_0fff) | (relocated_4 << 12) | (relocated_high << 28));
     windows[5].set((window_5 & 0xffff_f000) | ((relocated_high & 0xffff) >> 4));
 }
 
@@ -311,7 +309,11 @@ pub fn prepare_memory_and_interrupts() {
 
     let clock = clock_reset();
     let system = system_control();
-    let remap_control = if remap_windows_present() { remap_window(0) } else { 0 };
+    let remap_control = if remap_windows_present() {
+        remap_window(0)
+    } else {
+        0
+    };
 
     if remap_control & 0x0800_0000 == 0 {
         boot().startup_mode.set(3);
@@ -409,7 +411,9 @@ pub fn prepare_dma_and_clocks() {
     // The vendor also records the chosen clock parameters in DTCM; nothing
     // reads them back.
     let alternate = platform.clock_status.get() & 8 == 0;
-    platform.clock_flags.set(if alternate { 0x0c02 } else { 0x0042 });
+    platform
+        .clock_flags
+        .set(if alternate { 0x0c02 } else { 0x0042 });
     post_code(0x444d_4307);
 }
 
@@ -633,9 +637,8 @@ pub fn prepare_packet_dma() {
     let list_base = packet_ram::automatic_response_list().start;
     register32(list_base).set(0x4e14_0000);
     for index in 0..33 {
-        register32(list_base + 4 + index * 4).set(
-            0x2200_0000 | unsafe { packet_ram::mac_packet_offset_unchecked(list_base) },
-        );
+        register32(list_base + 4 + index * 4)
+            .set(0x2200_0000 | unsafe { packet_ram::mac_packet_offset_unchecked(list_base) });
     }
     register32(list_base + 4 + 33 * 4).set(0xf000_0000);
     post_code(0x5044_4d23);

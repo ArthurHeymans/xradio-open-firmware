@@ -212,7 +212,6 @@ impl Pipes {
             pipe.watchdog.set(PIPE_WATCHDOG_RELOAD);
         }
     }
-
 }
 
 static PIPES: Global<Pipes> = Global::new(Pipes::new());
@@ -358,22 +357,39 @@ pub(crate) struct TxHardwareRingAddress(pub(crate) u32);
 
 impl TxHardwareRingAddress {
     pub(crate) const fn for_pipe(pipe: u8, address: u32) -> Option<Self> {
-        if pipe < 4
-            && address
-                == crate::platform::tx_ring_register(pipe as usize, 0) as u32
-        {
+        if pipe < 4 && address == crate::platform::tx_ring_register(pipe as usize, 0) as u32 {
             Some(Self(address))
         } else {
             None
         }
     }
-    pub(crate) const fn raw(self) -> u32 { self.0 }
-    pub(crate) const fn field(self, offset: usize) -> u32 { self.0.wrapping_add(offset as u32) }
-    pub(crate) const fn duration_fifo(self) -> u32 { self.field(core::mem::offset_of!(TxHardwareRingLayout, duration_fifo)) }
-    pub(crate) const fn go(self) -> u32 { self.field(core::mem::offset_of!(TxHardwareRingLayout, go)) }
-    pub(crate) const fn inactive_sentinel(self) -> u32 { self.field(core::mem::offset_of!(TxHardwareRingLayout, inactive_sentinel)) }
-    pub(crate) const fn completion_word(self) -> u32 { self.field(core::mem::offset_of!(TxHardwareRingLayout, completion_word)) }
-    pub(crate) const fn cursor_and_pending_mask(self) -> u32 { self.field(core::mem::offset_of!(TxHardwareRingLayout, cursor_and_pending_mask)) }
+    pub(crate) const fn raw(self) -> u32 {
+        self.0
+    }
+    pub(crate) const fn field(self, offset: usize) -> u32 {
+        self.0.wrapping_add(offset as u32)
+    }
+    pub(crate) const fn duration_fifo(self) -> u32 {
+        self.field(core::mem::offset_of!(TxHardwareRingLayout, duration_fifo))
+    }
+    pub(crate) const fn go(self) -> u32 {
+        self.field(core::mem::offset_of!(TxHardwareRingLayout, go))
+    }
+    pub(crate) const fn inactive_sentinel(self) -> u32 {
+        self.field(core::mem::offset_of!(
+            TxHardwareRingLayout,
+            inactive_sentinel
+        ))
+    }
+    pub(crate) const fn completion_word(self) -> u32 {
+        self.field(core::mem::offset_of!(TxHardwareRingLayout, completion_word))
+    }
+    pub(crate) const fn cursor_and_pending_mask(self) -> u32 {
+        self.field(core::mem::offset_of!(
+            TxHardwareRingLayout,
+            cursor_and_pending_mask
+        ))
+    }
 }
 
 /// Per-pipe watchdog reload the firmware writes at GO.
@@ -487,7 +503,9 @@ pub fn plan_ordinary_tx_pipe_status(
 /// through `last`. Earlier slots completed when their status arrived (a
 /// frame that expects no response goes out alone).
 pub fn unfinished_slots(current: u8, last: u8) -> impl Iterator<Item = u8> {
-    core::iter::successors(Some(current & 3), move |&slot| (slot != last & 3).then_some((slot + 1) & 3))
+    core::iter::successors(Some(current & 3), move |&slot| {
+        (slot != last & 3).then_some((slot + 1) & 3)
+    })
 }
 
 /// Stops a pipe's hardware ring before recovery takes its slots back
@@ -497,9 +515,16 @@ pub fn unfinished_slots(current: u8, last: u8) -> impl Iterator<Item = u8> {
 pub(crate) fn stop_pipe_ring<M: Hw>(mmio: &mut M, pipes: &Pipes, pipe: u8) -> Option<u8> {
     let record = pipes.pipe(pipe);
     let ring = record.hardware_ring(pipe)?;
-    let next = if record.state.get() == 1 { record.last.get().wrapping_add(1) } else { record.producer.get() } & 3;
+    let next = if record.state.get() == 1 {
+        record.last.get().wrapping_add(1)
+    } else {
+        record.producer.get()
+    } & 3;
     mmio.write(ring.inactive_sentinel(), PIPE_RETRY_INACTIVE_SENTINEL);
-    mmio.write(PIPE_IRQ_PENDING, 0_u32.wrapping_sub((0x1110 << pipe) + 0x10));
+    mmio.write(
+        PIPE_IRQ_PENDING,
+        0_u32.wrapping_sub((0x1110 << pipe) + 0x10),
+    );
     let cursor = mmio.read(ring.cursor_and_pending_mask());
     mmio.write(
         ring.cursor_and_pending_mask(),
@@ -566,7 +591,8 @@ pub fn service_response_timeouts(now: u32) -> u32 {
         if pipe.state.get() != 1 || pipe.control.get() & 1 == 0 || slot.frame.get().is_none() {
             continue;
         }
-        let unanswered = slot.state.get() == 3 && now.wrapping_sub(slot.transmitted_at.get()) >= RESPONSE_WAIT_US;
+        let unanswered = slot.state.get() == 3
+            && now.wrapping_sub(slot.transmitted_at.get()) >= RESPONSE_WAIT_US;
         let stalled = now.wrapping_sub(pipe.progress_at.get()) >= PROGRESS_WAIT_US;
         if !unanswered && !stalled {
             continue;
@@ -733,7 +759,8 @@ pub fn publish_host_class0_slot(
     let protected = context.get().protection.get();
     if let Some(timing) = protected {
         let prefix = pipes.pipe(pipe).slot(slot.wrapping_sub(1) & 3);
-        if batch != BatchPosition::Only || prefix.frame.get() != Some(context)
+        if batch != BatchPosition::Only
+            || prefix.frame.get() != Some(context)
             || prefix.prefix.get() != Some(timing.kind)
             || prefix.expected_status.get() != timing.kind.expected_status()
         {
@@ -741,7 +768,10 @@ pub fn publish_host_class0_slot(
         }
     }
     let runtime = &mut engine.probe;
-    if !runtime.backend.register_publication(batch, context, pipe, slot) {
+    if !runtime
+        .backend
+        .register_publication(batch, context, pipe, slot)
+    {
         return Err(ProbeBuildError::InvalidContextPointer);
     }
     if protected.is_some() {
@@ -750,7 +780,14 @@ pub fn publish_host_class0_slot(
         execute_protected_publication(&mut Mmio, pipes, pipe, slot, context);
     } else {
         execute_single_probe_publication(
-            &mut Mmio, pipes, SingleProbePublicationInput { pipe, slot, context, batch },
+            &mut Mmio,
+            pipes,
+            SingleProbePublicationInput {
+                pipe,
+                slot,
+                context,
+                batch,
+            },
         );
     }
     Ok(())
@@ -789,7 +826,8 @@ impl BatchPosition {
 /// A reserved slot must hold exactly the frame being published, with the
 /// frame's response class.
 pub(crate) fn single_frame_slot_matches(slot: &Slot, context: ContextId) -> bool {
-    slot.prefix.get().is_none() && slot.frame.get() == Some(context)
+    slot.prefix.get().is_none()
+        && slot.frame.get() == Some(context)
         && slot.expected_status.get() == context.get().frame_kind.get()
 }
 
@@ -811,9 +849,10 @@ pub(crate) fn execute_single_probe_publication<M: Hw>(
     let Some(ring) = pipe.hardware_ring(pipe_index) else {
         return u8::MAX;
     };
-    let descriptor = TxDescriptorAddress::new(
-        packet_ram::tx_command(usize::from(pipe_index), usize::from(slot_index)) as u32,
-    );
+    let descriptor = TxDescriptorAddress::new(packet_ram::tx_command(
+        usize::from(pipe_index),
+        usize::from(slot_index),
+    ) as u32);
     let context = input.context.get();
 
     // `current` tracks hardware progress through the batch, so only the first
@@ -832,7 +871,11 @@ pub(crate) fn execute_single_probe_publication<M: Hw>(
         frame_kind: context.frame_kind.get(),
     };
     let (response, rate) = if let Some(kind) = slot.prefix.get() {
-        let Some(prefix) = context.protection.get().filter(|prefix| prefix.kind == kind) else {
+        let Some(prefix) = context
+            .protection
+            .get()
+            .filter(|prefix| prefix.kind == kind)
+        else {
             crate::halt_always!();
         };
         slot.duration.set(prefix.slot_duration());
@@ -843,8 +886,7 @@ pub(crate) fn execute_single_probe_publication<M: Hw>(
     };
     build_frame_duration(mmio, descriptor.raw(), context, response != 0xff, rate);
     if response != 0xff {
-        let flags = mmio.read(descriptor.flags())
-            | u32::from(response).wrapping_add(0x80);
+        let flags = mmio.read(descriptor.flags()) | u32::from(response).wrapping_add(0x80);
         mmio.write(descriptor.flags(), flags);
     }
     pipe.last.set(slot_index);
@@ -854,7 +896,10 @@ pub(crate) fn execute_single_probe_publication<M: Hw>(
     let pas = low_mac.pas(context.interface.get());
     let edca_slot_timing = pas.packed_aifs.get();
     if low_mac.edca_slot_timing.get() != edca_slot_timing {
-        mmio.write(crate::platform::mac_register(0x0e64) as u32, edca_slot_timing);
+        mmio.write(
+            crate::platform::mac_register(0x0e64) as u32,
+            edca_slot_timing,
+        );
         low_mac.edca_slot_timing.set(edca_slot_timing);
     }
 
@@ -866,10 +911,15 @@ pub(crate) fn execute_single_probe_publication<M: Hw>(
             quantum = airtime;
         }
     } else if quantum <= airtime {
-        context.auxiliary_state.set(context.auxiliary_state.get() | 8);
+        context
+            .auxiliary_state
+            .set(context.auxiliary_state.get() | 8);
         quantum = airtime;
     }
-    mmio.write(quantum_register(pipe_index), quantum.wrapping_add(0x1f) >> 5);
+    mmio.write(
+        quantum_register(pipe_index),
+        quantum.wrapping_add(0x1f) >> 5,
+    );
 
     if !matches!(input.batch, BatchPosition::Only) {
         // A staged batch remains entirely software-owned until
@@ -935,11 +985,7 @@ pub(crate) fn finalize_staged_pipe<M: Hw>(
 /// Every slot from `first_slot` through `last_slot` must be reserved by the
 /// caller in this pipe.
 #[cfg(target_arch = "arm")]
-pub fn finalize_staged_host_class0_pipe(
-    pipe: u8,
-    first_slot: u8,
-    last_slot: u8,
-) {
+pub fn finalize_staged_host_class0_pipe(pipe: u8, first_slot: u8, last_slot: u8) {
     if !finalize_staged_pipe(&mut Mmio, pipes(), pipe, first_slot, last_slot) {
         crate::halt_always!();
     }

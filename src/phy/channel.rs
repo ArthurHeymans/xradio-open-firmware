@@ -12,7 +12,10 @@ fn cached_pll_channel() -> u16 {
 }
 
 pub(super) fn cached_pll_divider() -> (u32, u32) {
-    (self::state().pll_integer.get(), self::state().pll_fractional.get())
+    (
+        self::state().pll_integer.get(),
+        self::state().pll_fractional.get(),
+    )
 }
 
 fn set_cached_pll_divider(integer: u32, fractional: u32, channel: u16) {
@@ -29,7 +32,11 @@ fn set_channel_power_limits(low_rate: i16, high_rate: i16) {
 
 fn channel_power_limit(high_rate: bool) -> i16 {
     let phy = self::state();
-    if high_rate { phy.power_limit_high_rate.get() } else { phy.power_limit_low_rate.get() }
+    if high_rate {
+        phy.power_limit_high_rate.get()
+    } else {
+        phy.power_limit_low_rate.get()
+    }
 }
 
 /// Complete `0x18f2c -> 0x1838c` PLL publication sequence. It remains
@@ -50,23 +57,11 @@ pub fn commit_channel_pll(register: u32, mode: u8, extended_settle: bool) {
         delay_units(0x78);
     }
     if mode == 0 {
-        write_u32(
-            MODE_CONTROL,
-            reg_read(MODE_CONTROL) & !0x40,
-        );
-        write_u32(
-            BAND_CONTROL,
-            reg_read(BAND_CONTROL) & !0x200,
-        );
+        write_u32(MODE_CONTROL, reg_read(MODE_CONTROL) & !0x40);
+        write_u32(BAND_CONTROL, reg_read(BAND_CONTROL) & !0x200);
         delay_units(10);
-        write_u32(
-            MODE_CONTROL,
-            reg_read(MODE_CONTROL) | 0x40,
-        );
-        write_u32(
-            BAND_CONTROL,
-            reg_read(BAND_CONTROL) | 0x200,
-        );
+        write_u32(MODE_CONTROL, reg_read(MODE_CONTROL) | 0x40);
+        write_u32(BAND_CONTROL, reg_read(BAND_CONTROL) | 0x200);
         delay_units(10);
     }
 }
@@ -149,20 +144,11 @@ pub fn begin_channel_measurement() -> ChannelMeasurementSnapshot {
         abc0084: reg_read(0x0abc_0084),
     };
 
-    write_u32(
-        0x0abb_8004,
-        reg_read(0x0abb_8004) | 0x800,
-    );
-    write_u32(
-        0x0abc_0084,
-        reg_read(0x0abc_0098) | 0x0700_0200,
-    );
+    write_u32(0x0abb_8004, reg_read(0x0abb_8004) | 0x800);
+    write_u32(0x0abc_0084, reg_read(0x0abc_0098) | 0x0700_0200);
     write_u32(0x0abc_006c, reg_read(0x0abc_0080));
     write_u32(0x0abc_0050, reg_read(0x0abc_0064));
-    write_u32(
-        0x0abc_0034,
-        reg_read(0x0abc_0048) | 0x101,
-    );
+    write_u32(0x0abc_0034, reg_read(0x0abc_0048) | 0x101);
     write_u32(0x0abc_0004, snapshot.abc0004 | 2);
     snapshot
 }
@@ -517,26 +503,17 @@ pub fn program_channel_pll(channel: u16) -> Result<PllDivider, ChannelPllError> 
 /// exits intentionally skip restoration, matching the vendor routine.
 ///
 /// The PHY state and RF/PHY register banks must be initialized.
-pub fn measure_temperature_primary()
--> Result<TemperatureMeasurement, TemperatureMeasurementError> {
-    write_u32(
-        0x0abb_8004,
-        reg_read(0x0abb_8004) | 0x800,
-    );
+pub fn measure_temperature_primary() -> Result<TemperatureMeasurement, TemperatureMeasurementError>
+{
+    write_u32(0x0abb_8004, reg_read(0x0abb_8004) | 0x800);
     let saved_abc0084 = reg_read(0x0abc_0084);
-    write_u32(
-        0x0abc_0084,
-        reg_read(0x0abc_0098) | 0x0700_0200,
-    );
+    write_u32(0x0abc_0084, reg_read(0x0abc_0098) | 0x0700_0200);
     let saved_abc006c = reg_read(0x0abc_006c);
     write_u32(0x0abc_006c, reg_read(0x0abc_0080));
     let saved_abc0050 = reg_read(0x0abc_0050);
     write_u32(0x0abc_0050, reg_read(0x0abc_0064));
     let saved_abc0034 = reg_read(0x0abc_0034);
-    write_u32(
-        0x0abc_0034,
-        reg_read(0x0abc_0048) | 0x101,
-    );
+    write_u32(0x0abc_0034, reg_read(0x0abc_0048) | 0x101);
     let saved_abc0004 = reg_read(0x0abc_0004);
     write_u32(0x0abc_0004, saved_abc0004 | 2);
     let saved_abb800c = reg_read(0x0abb_800c);
@@ -612,9 +589,9 @@ pub fn publish_channel_power(channel: u8) -> Result<(i16, i16, i16), ChannelPowe
         1 => 0x31,
         _ => return Err(ChannelPowerError::InvalidThresholdTable),
     };
-    let threshold =
-        self::calibration().channel_threshold_correction(threshold_id, u16::from(channel))
-            .ok_or(ChannelPowerError::InvalidThresholdTable)?;
+    let threshold = self::calibration()
+        .channel_threshold_correction(threshold_id, u16::from(channel))
+        .ok_or(ChannelPowerError::InvalidThresholdTable)?;
     self::state().threshold.set(threshold as u16 as i16);
     let first = channel_tx_power_from_rate_table(channel, false)?;
     let second = channel_tx_power_from_rate_table(channel, true)?;
@@ -852,11 +829,9 @@ pub fn program_all_tx_gain_slots(power_tenths_dbm: i32) -> Result<(), GainProgra
     let profile_index = usize::from(profile);
     for slot in 0..16usize {
         let rate = (slot as u8).min(10);
-        let rate_limit = i32::from(
-            self::calibration().profiles[profile_index].rate_limits
-                [usize::from(rate)],
-        )
-        .wrapping_add(requested_offset);
+        let rate_limit =
+            i32::from(self::calibration().profiles[profile_index].rate_limits[usize::from(rate)])
+                .wrapping_add(requested_offset);
         let second_limit = rate_limit.min(i32::from(channel_power_limit(rate > 1)));
         let result = compute_gain_entry(gain_computation_input(
             profile,
@@ -951,7 +926,6 @@ pub(super) fn run_dynamic_mode_calibration() {
     };
     let mut samples = [0_u32; 64];
     let _ = run_dynamic_iq_calibration_for_profile(configuration, &mut samples);
-
 }
 
 pub(super) fn begin_channel_transition(
@@ -999,17 +973,14 @@ pub(super) fn begin_channel_transition(
     // is set; nothing ever sets it.
     let mut calibration_ran = false;
 
-    let timing = program_channel_measurement_timing()
-        .ok_or(ChannelTransitionError::InvalidTiming)?;
-    let temperature =
-        measure_temperature_primary().map_err(ChannelTransitionError::Temperature)?;
+    let timing =
+        program_channel_measurement_timing().ok_or(ChannelTransitionError::InvalidTiming)?;
+    let temperature = measure_temperature_primary().map_err(ChannelTransitionError::Temperature)?;
 
     if !same_mode_channel
-        && prepare_channel_calibration_cache()
-            == ChannelCalibrationRequirement::RunCalibration
+        && prepare_channel_calibration_cache() == ChannelCalibrationRequirement::RunCalibration
     {
-        run_mode_calibration(calibration_max_polls)
-            .map_err(ChannelTransitionError::Calibration)?;
+        run_mode_calibration(calibration_max_polls).map_err(ChannelTransitionError::Calibration)?;
         record_calibrated_channel(channel);
         calibration_ran = true;
     }
@@ -1022,8 +993,7 @@ pub(super) fn begin_channel_transition(
     // its standard 20 dBm default for early scan bring-up if that write has
     // not arrived yet; the vendor path consumes the same value in deci-dBm.
     let tx_power_tenths_dbm = self::state().tx_power_tenths_dbm.get().unwrap_or(200);
-    program_all_tx_gain_slots(tx_power_tenths_dbm)
-        .map_err(ChannelTransitionError::Gain)?;
+    program_all_tx_gain_slots(tx_power_tenths_dbm).map_err(ChannelTransitionError::Gain)?;
     // First return from vendor `phy_cal_run_step_timed`: state 1, followed by
     // a 120-tick cooperative settle interval.
     {
@@ -1103,8 +1073,9 @@ impl ChannelTransitionScheduler {
         // channel is already active. Preserve RX/FIFO state instead of cycling
         // the analogue front end for every repeated single-channel scan.
         if crate::mac::low_mac().current_channel.get() == channel
-        && crate::mac::low_mac().receive_state.get() == 4
-        && self::state().phase.get() == 2 {
+            && crate::mac::low_mac().receive_state.get() == 4
+            && self::state().phase.get() == 2
+        {
             let (integer, fractional) = cached_pll_divider();
             self.result.divider = PllDivider {
                 integer,

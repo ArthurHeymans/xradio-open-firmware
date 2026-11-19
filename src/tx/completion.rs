@@ -65,8 +65,7 @@ pub struct HostClass0Completion {
 
 /// One service pass can retire the configured ordinary batch depth on each of
 /// four MAC pipes before the host driver starts draining copied identities.
-pub(crate) const HOST_CLASS0_COMPLETION_CAPACITY: usize =
-    4 * crate::tx::MAX_ORDINARY_BATCH_DEPTH;
+pub(crate) const HOST_CLASS0_COMPLETION_CAPACITY: usize = 4 * crate::tx::MAX_ORDINARY_BATCH_DEPTH;
 
 pub(crate) struct BoundedCompletionQueue<T, const N: usize> {
     pub(crate) entries: [Option<T>; N],
@@ -98,7 +97,8 @@ pub struct SingleProbeMacBackend {
     pub(crate) mismatch: [u8; 4],
     pub(crate) publications: [Option<PublishedSlotIdentity>; 16],
     /// Completed host frames, in order.
-    pub(crate) completed: BoundedCompletionQueue<HostClass0Completion, HOST_CLASS0_COMPLETION_CAPACITY>,
+    pub(crate) completed:
+        BoundedCompletionQueue<HostClass0Completion, HOST_CLASS0_COMPLETION_CAPACITY>,
     /// The firmware's own frame completed (a probe request, or one from the
     /// management publisher): one is in flight at a time, and it is its
     /// publisher's, whichever runtime serviced the MAC.
@@ -134,9 +134,8 @@ impl SingleProbeMacBackend {
             return false;
         };
         let pipe_index = usize::from(pipe);
-        let occupied = core::array::from_fn(|slot| {
-            self.publications[pipe_index * 4 + slot].is_some()
-        });
+        let occupied =
+            core::array::from_fn(|slot| self.publications[pipe_index * 4 + slot].is_some());
         if !publication_registration_allowed(occupied, batch, slot) {
             return false;
         }
@@ -256,15 +255,15 @@ impl SingleProbeMacBackend {
             terminal_probe_backend_fault(0);
         }
         let aggregate_slot = context.get().aggregate_slot.replace(NO_AGGREGATE);
-        let Some((index, publication)) = self
-            .publications
-            .iter()
-            .enumerate()
-            .find_map(|(index, publication)| {
-                publication
-                    .filter(|publication| publication.context == context)
-                    .map(|publication| (index, publication))
-            })
+        let Some((index, publication)) =
+            self.publications
+                .iter()
+                .enumerate()
+                .find_map(|(index, publication)| {
+                    publication
+                        .filter(|publication| publication.context == context)
+                        .map(|publication| (index, publication))
+                })
         else {
             // Aggregate members after the first share the first's slot and
             // publication.
@@ -358,10 +357,14 @@ pub(crate) fn complete_tx_pipe_slot(slot: LiveTxSlot, status: u16) {
         return complete_aggregate_slot(slot, status);
     }
     let pipes = pipes();
-    let Some(id) = retire_command_slot(pipes, slot.pipe, slot.slot) else { return };
+    let Some(id) = retire_command_slot(pipes, slot.pipe, slot.slot) else {
+        return;
+    };
     let context = id.get();
     let class_bits = ((context.flags.get() >> 18) & 0x0c) as u16;
-    context.auxiliary_state.set(context.auxiliary_state.get() | class_bits);
+    context
+        .auxiliary_state
+        .set(context.auxiliary_state.get() | class_bits);
     context.terminal_status.set(status);
     COMPLETION_RING.enqueue(id);
 }
@@ -376,7 +379,9 @@ pub(crate) fn service_completion_drain(backend: &mut SingleProbeMacBackend) {
     for id in COMPLETION_RING.drain() {
         let context = id.get();
         context.completion_flags.set(context.auxiliary_state.get());
-        contexts.active_pas.set(contexts.active_pas.get().wrapping_sub(1));
+        contexts
+            .active_pas
+            .set(contexts.active_pas.get().wrapping_sub(1));
         backend.serviced = backend.serviced.wrapping_add(1);
         backend.complete_context(id, context.terminal_status.get());
     }

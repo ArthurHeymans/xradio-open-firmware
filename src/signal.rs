@@ -57,14 +57,28 @@ impl SignalMonitor {
 
     /// MIB 0x1009: mode, lower and upper threshold, averaging count.
     pub fn configure(&mut self, data: &[u8]) -> bool {
-        let [mode, lower, upper, count] = *data else { return false };
-        *self = Self { mode, lower, upper, count: count.clamp(1, WINDOW as u8), ..Self::new() };
+        let [mode, lower, upper, count] = *data else {
+            return false;
+        };
+        *self = Self {
+            mode,
+            lower,
+            upper,
+            count: count.clamp(1, WINDOW as u8),
+            ..Self::new()
+        };
         true
     }
 
     /// Joined anew: average from scratch, keeping the subscription.
     pub fn restart(&mut self) {
-        *self = Self { mode: self.mode, lower: self.lower, upper: self.upper, count: self.count, ..Self::new() };
+        *self = Self {
+            mode: self.mode,
+            lower: self.lower,
+            upper: self.upper,
+            count: self.count,
+            ..Self::new()
+        };
     }
 
     /// A beacon of the joined BSS arrived with `rcpi` (0.5 dB units from
@@ -74,16 +88,29 @@ impl SignalMonitor {
             return;
         }
         let rssi = self.mode & USE_RSSI != 0;
-        self.samples[self.next] = if rssi { i16::from(rcpi) / 2 - 110 } else { i16::from(rcpi) };
+        self.samples[self.next] = if rssi {
+            i16::from(rcpi) / 2 - 110
+        } else {
+            i16::from(rcpi)
+        };
         self.next = (self.next + 1) % usize::from(self.count);
         self.filled = (self.filled + 1).min(usize::from(self.count));
         if self.filled < usize::from(self.count) {
             return;
         }
-        let sum: i32 = self.samples[..self.filled].iter().map(|&sample| i32::from(sample)).sum();
+        let sum: i32 = self.samples[..self.filled]
+            .iter()
+            .map(|&sample| i32::from(sample))
+            .sum();
         let average = (sum / self.filled as i32) as i16;
         // Thresholds are RCPI octets, or signed dBm octets for RSSI.
-        let threshold = |value: u8| if rssi { i16::from(value as i8) } else { i16::from(value) };
+        let threshold = |value: u8| {
+            if rssi {
+                i16::from(value as i8)
+            } else {
+                i16::from(value)
+            }
+        };
         let (lower, upper) = (threshold(self.lower), threshold(self.upper));
         let side = match self.mode & (DONT_USE_UPPER | DONT_USE_LOWER) {
             0 if average < lower && self.side != Side::Below => Side::Below,
@@ -127,12 +154,24 @@ mod tests {
         // cw1200's CQM subscription at -70 dBm, hysteresis 4: RCPI 80..88.
         let mut monitor = SignalMonitor::new();
         assert!(monitor.configure(&[ENABLE, 80, 88, 8]));
-        assert_eq!(feed(&mut monitor, 70, 7), None, "the window is not full yet");
+        assert_eq!(
+            feed(&mut monitor, 70, 7),
+            None,
+            "the window is not full yet"
+        );
         assert_eq!(feed(&mut monitor, 70, 1), Some(70));
         assert_eq!(feed(&mut monitor, 70, 20), None, "reported once");
         assert_eq!(feed(&mut monitor, 84, 8), None, "inside the hysteresis");
-        assert_eq!(feed(&mut monitor, 100, 2), None, "the average (88) still lags");
-        assert_eq!(feed(&mut monitor, 100, 6), Some(90), "the first average above");
+        assert_eq!(
+            feed(&mut monitor, 100, 2),
+            None,
+            "the average (88) still lags"
+        );
+        assert_eq!(
+            feed(&mut monitor, 100, 6),
+            Some(90),
+            "the first average above"
+        );
         assert_eq!(feed(&mut monitor, 60, 8), Some(75));
     }
 

@@ -47,7 +47,11 @@ pub(crate) fn copy_to_packet_ram(destination: u32, source: &[u8]) {
     let destination = destination as usize;
     source.chunks(4).enumerate().for_each(|(index, chunk)| {
         let address = destination + index * 4;
-        let mut bytes = if chunk.len() == 4 { [0; 4] } else { read_u32(address).to_le_bytes() };
+        let mut bytes = if chunk.len() == 4 {
+            [0; 4]
+        } else {
+            read_u32(address).to_le_bytes()
+        };
         bytes[..chunk.len()].copy_from_slice(chunk);
         write_u32(address, u32::from_le_bytes(bytes));
     });

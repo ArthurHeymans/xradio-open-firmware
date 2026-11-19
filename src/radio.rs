@@ -11,10 +11,10 @@
 //! and the frame on its way through decryption.
 
 use crate::crypto::{Crypto, Job, RxKeyEpoch, Started};
-use crate::packet_ram;
-pub use crate::rx_model::RxToken;
 use crate::frame::{BlockAckRequest, Header, QosData};
+use crate::packet_ram;
 use crate::rx_ba::RxBlockAck;
+pub use crate::rx_model::RxToken;
 use crate::rx_model::{ReleaseAction, RxRing};
 use tock_registers::interfaces::{Readable, Writeable};
 use tock_registers::register_structs;
@@ -238,7 +238,11 @@ struct BlockAckCursor {
 
 impl BlockAckCursor {
     const fn new() -> Self {
-        Self { routed: None, scan: None, claim: None }
+        Self {
+            routed: None,
+            scan: None,
+            claim: None,
+        }
     }
 
     /// Observe every RX claim head, even for non-ACK frames. An offset is
@@ -248,8 +252,12 @@ impl BlockAckCursor {
         if let Some(previous) = self.claim.replace(claim) {
             let advanced = available_bytes(previous, claim);
             if advanced != 0 {
-                self.routed = self.routed.filter(|&offset| available_bytes(previous, offset) > advanced);
-                self.scan = self.scan.filter(|&offset| available_bytes(previous, offset) > advanced);
+                self.routed = self
+                    .routed
+                    .filter(|&offset| available_bytes(previous, offset) > advanced);
+                self.scan = self
+                    .scan
+                    .filter(|&offset| available_bytes(previous, offset) > advanced);
             }
         }
     }
@@ -257,7 +265,8 @@ impl BlockAckCursor {
     fn before(&self, claim: u32, producer: u32, offset: u32) -> bool {
         self.routed.is_some_and(|cursor| {
             let to_cursor = available_bytes(claim, cursor);
-            to_cursor <= available_bytes(claim, producer) && available_bytes(claim, offset) < to_cursor
+            to_cursor <= available_bytes(claim, producer)
+                && available_bytes(claim, offset) < to_cursor
         })
     }
 
@@ -279,7 +288,10 @@ impl BlockAckCursor {
     ) -> Option<crate::tx::ampdu::BlockAck> {
         self.follow_claim(claim);
         let pending = available_bytes(claim, producer);
-        let mut offset = self.scan.filter(|&scan| available_bytes(claim, scan) <= pending).unwrap_or(claim);
+        let mut offset = self
+            .scan
+            .filter(|&scan| available_bytes(claim, scan) <= pending)
+            .unwrap_or(claim);
         // Every slot takes at least 0x30 bytes. Bound malformed/cyclic walks.
         for _ in 0..FIFO_SIZE / 0x30 {
             self.scan = Some(offset);
@@ -403,29 +415,29 @@ impl Fifo {
         if slot_offset >= FIFO_SIZE {
             // SAFETY: the firmware halts right after.
             unsafe {
-            crate::hif::publish_halting_exception(
-                [
-                    0x5258_524c,
-                    (fifo_base() + slot_offset as usize) as u32,
-                    token.next(),
-                    self.ring.release_offset(),
-                    self.ring.claim_offset(),
-                    dma_producer(),
-                    self.ring.host_transfer_count(),
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    fifo_base() as u32,
-                    FIFO_SIZE,
-                ],
-                b"xr819-rx-release-address",
-            );
+                crate::hif::publish_halting_exception(
+                    [
+                        0x5258_524c,
+                        (fifo_base() + slot_offset as usize) as u32,
+                        token.next(),
+                        self.ring.release_offset(),
+                        self.ring.claim_offset(),
+                        dma_producer(),
+                        self.ring.host_transfer_count(),
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        fifo_base() as u32,
+                        FIFO_SIZE,
+                    ],
+                    b"xr819-rx-release-address",
+                );
             }
             // Do NOT convert this into a return: skipping the release stalls
             // the release head permanently, the FIFO never drains, and every
@@ -460,7 +472,11 @@ impl Fifo {
             if next_state & 0xffff_ff00 != 0xffff_ff00 {
                 break;
             }
-            self.release_head_slot(next_slot, normalize_offset(next_slot.next.get()), next_state & 0xff);
+            self.release_head_slot(
+                next_slot,
+                normalize_offset(next_slot.next.get()),
+                next_state & 0xff,
+            );
         }
         if let Some(target) = self.ring.finish_deferred_resync() {
             // `finish_deferred_resync` already updates the software cursor;
@@ -491,24 +507,25 @@ impl crate::tx::aggregate::BlockAckLookahead for Fifo {
     /// address, peer, TID and sequence evidence. Nothing is consumed here.
     fn next_block_ack(&mut self) -> Option<crate::tx::ampdu::BlockAck> {
         let producer = normalize_offset(dma_producer());
-        self.block_ack.next(self.ring.claim_offset(), producer, |offset| {
-            if fifo_word(offset) != FIFO_MAGIC {
-                return None;
-            }
-            let header = slot(offset);
-            let length = header.length.get();
-            let next = next_offset(offset, length);
-            if length < 4
-                || usize::from(length) > MAX_FRAME_LEN + 4
-                || !slot_data_fits_packet_ram(offset, length)
-                || available_bytes(offset, next) > available_bytes(offset, producer)
-            {
-                return None;
-            }
-            // SAFETY: packet DMA has finished the bounded slot before producer.
-            let frame = unsafe { frame_bytes(header.frame_address(), usize::from(length) - 4) };
-            Some((next, crate::tx::ampdu::parse_block_ack(frame)))
-        })
+        self.block_ack
+            .next(self.ring.claim_offset(), producer, |offset| {
+                if fifo_word(offset) != FIFO_MAGIC {
+                    return None;
+                }
+                let header = slot(offset);
+                let length = header.length.get();
+                let next = next_offset(offset, length);
+                if length < 4
+                    || usize::from(length) > MAX_FRAME_LEN + 4
+                    || !slot_data_fits_packet_ram(offset, length)
+                    || available_bytes(offset, next) > available_bytes(offset, producer)
+                {
+                    return None;
+                }
+                // SAFETY: packet DMA has finished the bounded slot before producer.
+                let frame = unsafe { frame_bytes(header.frame_address(), usize::from(length) - 4) };
+                Some((next, crate::tx::ampdu::parse_block_ack(frame)))
+            })
     }
 }
 
@@ -563,9 +580,18 @@ impl Radio {
     pub fn activity(&self, activity: crate::activity::Activity) -> crate::activity::Activity {
         let in_flight = match &self.in_flight {
             None => 0,
-            Some(InFlight { decrypt: Decrypt::Waiting, .. }) => 1,
-            Some(InFlight { decrypt: Decrypt::Running(_), .. }) => 2,
-            Some(InFlight { decrypt: Decrypt::Ready, .. }) => 3,
+            Some(InFlight {
+                decrypt: Decrypt::Waiting,
+                ..
+            }) => 1,
+            Some(InFlight {
+                decrypt: Decrypt::Running(_),
+                ..
+            }) => 2,
+            Some(InFlight {
+                decrypt: Decrypt::Ready,
+                ..
+            }) => 3,
         };
         self.fifo
             .ring
@@ -648,7 +674,11 @@ impl Radio {
 
     /// Polls one packet-DMA frame and prepares a zero-copy WSM receive
     /// indication. Unwanted frames are released immediately.
-    pub fn poll_scan_indication(&mut self, if_id: u8, active_channel: u16) -> Option<PendingIndication> {
+    pub fn poll_scan_indication(
+        &mut self,
+        if_id: u8,
+        active_channel: u16,
+    ) -> Option<PendingIndication> {
         let claimed = claim_frame(&mut self.fifo, if_id, active_channel, None, None)?;
         deliver(&mut self.fifo, None, None, claimed, if_id, active_channel)
     }
@@ -674,15 +704,22 @@ impl Radio {
     /// their pipes. Frames they hold go to the host.
     pub fn end_peer_block_ack(&mut self, peer: [u8; 6]) {
         let fifo = &mut self.fifo;
-        let freed = self.sessions.end_peer(peer, &mut |indication: PendingIndication| fifo.release(indication.release));
+        let freed = self
+            .sessions
+            .end_peer(peer, &mut |indication: PendingIndication| {
+                fifo.release(indication.release)
+            });
         #[cfg(target_arch = "arm")]
-        (0..crate::rx_ba::SESSIONS).filter(|slot| freed & 1 << slot != 0).for_each(crate::rx_ba::clear_pipe);
+        (0..crate::rx_ba::SESSIONS)
+            .filter(|slot| freed & 1 << slot != 0)
+            .for_each(crate::rx_ba::clear_pipe);
         let _ = freed;
     }
 
     pub fn reset_block_ack(&mut self, crypto: &mut Crypto) {
         let fifo = &mut self.fifo;
-        self.sessions.reset(&mut |indication: PendingIndication| fifo.release(indication.release));
+        self.sessions
+            .reset(&mut |indication: PendingIndication| fifo.release(indication.release));
         if let Some(in_flight) = self.in_flight.take() {
             if let Decrypt::Running(job) = in_flight.decrypt {
                 crypto.abandon(job);
@@ -709,7 +746,11 @@ impl Radio {
         power_save: &mut crate::power_save::StationPowerSave,
         crypto: &mut Crypto,
     ) -> Option<PendingIndication> {
-        let Self { fifo, sessions, in_flight } = self;
+        let Self {
+            fifo,
+            sessions,
+            in_flight,
+        } = self;
         #[cfg(target_arch = "arm")]
         let now = crate::platform::timer_now();
         #[cfg(not(target_arch = "arm"))]
@@ -719,7 +760,19 @@ impl Radio {
         if let Some(current) = in_flight.take() {
             match advance(fifo, current, if_id, crypto) {
                 Some(Ok(claimed)) => {
-                    return admit_and_prefetch(fifo, sessions, in_flight, claimed, if_id, active_channel, block_ack, beacons, power_save, crypto, now);
+                    return admit_and_prefetch(
+                        fifo,
+                        sessions,
+                        in_flight,
+                        claimed,
+                        if_id,
+                        active_channel,
+                        block_ack,
+                        beacons,
+                        power_save,
+                        crypto,
+                        now,
+                    );
                 }
                 Some(Err(current)) => *in_flight = Some(current),
                 None => {}
@@ -729,7 +782,9 @@ impl Radio {
         // about three frames: the MAC acknowledges frames it cannot store.
         let producer = normalize_offset(dma_producer());
         let pressure = available_bytes(fifo.ring.release_offset(), producer) > FIFO_SIZE - 0x1000;
-        sessions.service(now, pressure, &mut |indication: PendingIndication| fifo.release(indication.release));
+        sessions.service(now, pressure, &mut |indication: PendingIndication| {
+            fifo.release(indication.release)
+        });
         // Released frames are older than anything still in the FIFO.
         if sessions.ready_len() != 0 {
             return take_ready(fifo, sessions, crypto, if_id);
@@ -738,10 +793,35 @@ impl Radio {
         if in_flight.is_some() {
             return None;
         }
-        let claimed =
-            claim_frame(fifo, if_id, active_channel, Some((block_ack, &mut *sessions)), Some((&mut *beacons, &mut *power_save, now)))?;
-        match advance(fifo, InFlight { claimed, decrypt: Decrypt::Waiting }, if_id, crypto)? {
-            Ok(claimed) => admit_and_prefetch(fifo, sessions, in_flight, claimed, if_id, active_channel, block_ack, beacons, power_save, crypto, now),
+        let claimed = claim_frame(
+            fifo,
+            if_id,
+            active_channel,
+            Some((block_ack, &mut *sessions)),
+            Some((&mut *beacons, &mut *power_save, now)),
+        )?;
+        match advance(
+            fifo,
+            InFlight {
+                claimed,
+                decrypt: Decrypt::Waiting,
+            },
+            if_id,
+            crypto,
+        )? {
+            Ok(claimed) => admit_and_prefetch(
+                fifo,
+                sessions,
+                in_flight,
+                claimed,
+                if_id,
+                active_channel,
+                block_ack,
+                beacons,
+                power_save,
+                crypto,
+                now,
+            ),
             Err(current) => {
                 *in_flight = Some(current);
                 None
@@ -769,10 +849,34 @@ fn admit_and_prefetch(
     crypto: &mut Crypto,
     now: u32,
 ) -> Option<PendingIndication> {
-    let indication = deliver(fifo, Some(&mut *sessions), Some(&mut *crypto), claimed, if_id, active_channel);
-    if let Some(next) = claim_frame(fifo, if_id, active_channel, Some((block_ack, sessions)), Some((beacons, power_save, now))) {
-        *in_flight = match advance(fifo, InFlight { claimed: next, decrypt: Decrypt::Waiting }, if_id, crypto) {
-            Some(Ok(ready)) => Some(InFlight { claimed: ready, decrypt: Decrypt::Ready }),
+    let indication = deliver(
+        fifo,
+        Some(&mut *sessions),
+        Some(&mut *crypto),
+        claimed,
+        if_id,
+        active_channel,
+    );
+    if let Some(next) = claim_frame(
+        fifo,
+        if_id,
+        active_channel,
+        Some((block_ack, sessions)),
+        Some((beacons, power_save, now)),
+    ) {
+        *in_flight = match advance(
+            fifo,
+            InFlight {
+                claimed: next,
+                decrypt: Decrypt::Waiting,
+            },
+            if_id,
+            crypto,
+        ) {
+            Some(Ok(ready)) => Some(InFlight {
+                claimed: ready,
+                decrypt: Decrypt::Ready,
+            }),
             Some(Err(next)) => Some(next),
             None => None,
         };
@@ -810,10 +914,16 @@ fn fresh(crypto: &mut Crypto, if_id: u8, indication: &PendingIndication) -> bool
     let (flags, frame) = unsafe {
         (
             ((message + 12) as *const u32).read_volatile(),
-            frame_bytes(message + WSM_RX_HEADROOM, usize::from(indication.length) - WSM_RX_HEADROOM),
+            frame_bytes(
+                message + WSM_RX_HEADROOM,
+                usize::from(indication.length) - WSM_RX_HEADROOM,
+            ),
         )
     };
-    flags & 7 != 3 || indication.key_epoch.is_some_and(|epoch| crypto.accept_rx_packet_number(if_id, frame, epoch))
+    flags & 7 != 3
+        || indication
+            .key_epoch
+            .is_some_and(|epoch| crypto.accept_rx_packet_number(if_id, frame, epoch))
 }
 
 /// A replay or a frame authenticated under a revoked key never reaches the host.
@@ -853,8 +963,16 @@ fn count_decrypt_failure(error: crate::crypto::CcmpError) {
 /// Move a frame through decryption: `Ok` once it is ready for the host,
 /// `Err` while the engine is busy or works on it, `None` if it failed and
 /// was dropped.
-fn advance(fifo: &mut Fifo, in_flight: InFlight, if_id: u8, crypto: &mut Crypto) -> Option<Result<Claimed, InFlight>> {
-    let InFlight { mut claimed, decrypt } = in_flight;
+fn advance(
+    fifo: &mut Fifo,
+    in_flight: InFlight,
+    if_id: u8,
+    crypto: &mut Crypto,
+) -> Option<Result<Claimed, InFlight>> {
+    let InFlight {
+        mut claimed,
+        decrypt,
+    } = in_flight;
     let job = match decrypt {
         Decrypt::Ready => return Some(Ok(claimed)),
         Decrypt::Running(job) => job,
@@ -864,12 +982,20 @@ fn advance(fifo: &mut Fifo, in_flight: InFlight, if_id: u8, crypto: &mut Crypto)
             // in the frame in flight, which is released only after `poll`
             // or `abandon` returns the job.
             let started = unsafe {
-                let frame = core::slice::from_raw_parts_mut(claimed.frame_address as *mut u8, claimed.frame_len);
+                let frame = core::slice::from_raw_parts_mut(
+                    claimed.frame_address as *mut u8,
+                    claimed.frame_len,
+                );
                 crypto.start_rx(frame, if_id)
             };
             match started {
                 Ok(Started::Plain) => return Some(Ok(claimed)),
-                Ok(Started::Busy) => return Some(Err(InFlight { claimed, decrypt: Decrypt::Waiting })),
+                Ok(Started::Busy) => {
+                    return Some(Err(InFlight {
+                        claimed,
+                        decrypt: Decrypt::Waiting,
+                    }));
+                }
                 Ok(Started::Running(job)) => job,
                 Err(error) => {
                     drop_undecrypted(fifo, claimed, error);
@@ -880,7 +1006,10 @@ fn advance(fifo: &mut Fifo, in_flight: InFlight, if_id: u8, crypto: &mut Crypto)
     };
     let key_epoch = job.rx_key_epoch();
     match crypto.poll(job) {
-        Err(job) => Some(Err(InFlight { claimed, decrypt: Decrypt::Running(job) })),
+        Err(job) => Some(Err(InFlight {
+            claimed,
+            decrypt: Decrypt::Running(job),
+        })),
         Ok(Ok(())) => {
             claimed.key_epoch = key_epoch;
             claimed.indication_flags |= 3;
@@ -905,7 +1034,9 @@ fn drop_undecrypted(fifo: &mut Fifo, claimed: Claimed, error: crate::crypto::Ccm
 // ToDS with a unicast receiver (us), and use their pairwise key.
 fn foreign_group_data(frame: &[u8], joined_ap: Option<[u8; 6]>) -> bool {
     Header::parse(frame).is_some_and(|header| {
-        header.is_data() && header.group_addressed() && joined_ap.is_none_or(|ap| header.addr2 != ap)
+        header.is_data()
+            && header.group_addressed()
+            && joined_ap.is_none_or(|ap| header.addr2 != ap)
     })
 }
 
@@ -913,7 +1044,11 @@ fn foreign_group_data(frame: &[u8], joined_ap: Option<[u8; 6]>) -> bool {
 /// a receive BlockAck session may cover: from the AP `joined` to us as its
 /// station, or from any of our stations when `joined` is `None` (we are the
 /// access point).
-fn session_frame(frame: &[u8], own: [u8; 6], joined: Option<[u8; 6]>) -> Option<([u8; 6], u8, u16)> {
+fn session_frame(
+    frame: &[u8],
+    own: [u8; 6],
+    joined: Option<[u8; 6]>,
+) -> Option<([u8; 6], u8, u16)> {
     let data = QosData::parse(frame)?;
     let header = &data.header;
     let from_peer = match joined {
@@ -925,7 +1060,8 @@ fn session_frame(frame: &[u8], own: [u8; 6], joined: Option<[u8; 6]>) -> Option<
 
 /// The AP a station's interface joined; `None` for an access point.
 fn joined_ap(vif: &crate::vif::Vif) -> Option<[u8; 6]> {
-    (vif.mode.get() != crate::vif::Role::AccessPoint as u8).then(|| vif.bssid.each_ref().map(core::cell::Cell::get))
+    (vif.mode.get() != crate::vif::Role::AccessPoint as u8)
+        .then(|| vif.bssid.each_ref().map(core::cell::Cell::get))
 }
 
 /// A claimed frame on its way to the host.
@@ -955,8 +1091,15 @@ fn claim_frame(
     fifo: &mut Fifo,
     if_id: u8,
     active_channel: u16,
-    mut joined: Option<(&crate::tx::ba::PeerSessions, &mut RxBlockAck<PendingIndication>)>,
-    beacons: Option<(&mut crate::beacon_loss::BeaconMonitor, &mut crate::power_save::StationPowerSave, u32)>,
+    mut joined: Option<(
+        &crate::tx::ba::PeerSessions,
+        &mut RxBlockAck<PendingIndication>,
+    )>,
+    beacons: Option<(
+        &mut crate::beacon_loss::BeaconMonitor,
+        &mut crate::power_save::StationPowerSave,
+        u32,
+    )>,
 ) -> Option<Claimed> {
     let scan_only = joined.is_none();
     let consumer = fifo.ring.claim_offset();
@@ -998,7 +1141,10 @@ fn claim_frame(
     }
 
     let available = available_bytes(consumer, producer);
-    if slot_length < 4 || usize::from(slot_length) > MAX_FRAME_LEN + 4 || available < u32::from(slot_length) {
+    if slot_length < 4
+        || usize::from(slot_length) > MAX_FRAME_LEN + 4
+        || available < u32::from(slot_length)
+    {
         fifo.diagnostics.malformed_slots = fifo.diagnostics.malformed_slots.wrapping_add(1);
         crate::counters::bump(crate::counters::Counter::RxPacketErrors);
         if usize::from(slot_length) > MAX_FRAME_LEN + 4 {
@@ -1043,7 +1189,9 @@ fn claim_frame(
     // SAFETY: the slot is claimed and fits the packet RAM (trailer above);
     // the frame is only read here.
     let frame = unsafe { frame_bytes(frame_address, frame_len) };
-    let frame_control = frame.get(..2).map_or(0xffff, |bytes| u16::from_le_bytes([bytes[0], bytes[1]]));
+    let frame_control = frame
+        .get(..2)
+        .map_or(0xffff, |bytes| u16::from_le_bytes([bytes[0], bytes[1]]));
     let indication_flags = scan_frame_flags(frame_control).unwrap_or(0);
 
     // A joined station's host hears other BSSes' beacons, and other
@@ -1085,7 +1233,9 @@ fn claim_frame(
             }
         } else if header.is_data() && header.group_addressed() {
             power_save.on_group_frame(header.more_data());
-        } else if header.is_data() && header.addr1 == vif.own_mac.each_ref().map(core::cell::Cell::get) {
+        } else if header.is_data()
+            && header.addr1 == vif.own_mac.each_ref().map(core::cell::Cell::get)
+        {
             power_save.on_traffic(now);
         }
     }
@@ -1099,9 +1249,13 @@ fn claim_frame(
         && joined_ap(vif).is_none_or(|ap| request.header.transmitter == ap)
     {
         let peer = request.header.transmitter;
-        sessions.on_block_ack_request(peer, request.tid(), request.ssn(), crate::platform::timer_now(), &mut |indication: PendingIndication| {
-            fifo.release(indication.release)
-        });
+        sessions.on_block_ack_request(
+            peer,
+            request.tid(),
+            request.ssn(),
+            crate::platform::timer_now(),
+            &mut |indication: PendingIndication| fifo.release(indication.release),
+        );
         fifo.release(token);
         return None;
     }
@@ -1109,14 +1263,18 @@ fn claim_frame(
     // The vendor drains old frames before retuning. Reject a management frame
     // whose on-air DS element proves it belongs to a previous channel rather
     // than relabeling it with the active CW1200 dwell.
-    let wrong_ds_channel =
-        scan_only && management_ds_channel(frame).is_some_and(|channel| u16::from(channel) != active_channel);
+    let wrong_ds_channel = scan_only
+        && management_ds_channel(frame).is_some_and(|channel| u16::from(channel) != active_channel);
     // An access point's sleeping stations poll for their frames with a
     // 16-octet PS-Poll; the host releases one buffered frame per poll.
     let ps_poll = frame_control & 0x00fc == 0x00a4
         && frame_len >= 16
-        && crate::vif::vif(if_id).is_some_and(|vif| vif.mode.get() == crate::vif::Role::AccessPoint as u8);
-    if (frame_len < 24 && !ps_poll) || (scan_only && scan_frame_flags(frame_control).is_none()) || wrong_ds_channel {
+        && crate::vif::vif(if_id)
+            .is_some_and(|vif| vif.mode.get() == crate::vif::Role::AccessPoint as u8);
+    if (frame_len < 24 && !ps_poll)
+        || (scan_only && scan_frame_flags(frame_control).is_none())
+        || wrong_ds_channel
+    {
         fifo.filtered();
         fifo.release(token);
         return None;
@@ -1139,7 +1297,12 @@ fn claim_frame(
     {
         let own = vif.own_mac.each_ref().map(core::cell::Cell::get);
         // An access point's peer is whichever station sent the frame.
-        let peer = match (joined_ap(vif), frame.get(10..16).and_then(|address| <[u8; 6]>::try_from(address).ok())) {
+        let peer = match (
+            joined_ap(vif),
+            frame
+                .get(10..16)
+                .and_then(|address| <[u8; 6]>::try_from(address).ok()),
+        ) {
             (Some(ap), _) => ap,
             (None, Some(transmitter)) => transmitter,
             (None, None) => [0; 6],
@@ -1147,7 +1310,13 @@ fn claim_frame(
         if let Some(received) = crate::tx::ba::parse(frame, own, peer) {
             let mut discard = |indication: PendingIndication| fifo.release(indication.release);
             match received {
-                crate::tx::ba::Received::AddbaRequest { token, tid, immediate, buffer_size, ssn } => {
+                crate::tx::ba::Received::AddbaRequest {
+                    token,
+                    tid,
+                    immediate,
+                    buffer_size,
+                    ssn,
+                } => {
                     let outcome = sessions.on_addba_request(
                         peer,
                         token,
@@ -1197,7 +1366,15 @@ fn claim_frame(
         }
     }
 
-    Some(Claimed { token, frame_address, frame_len, rx_rate, rcpi, indication_flags, key_epoch: None })
+    Some(Claimed {
+        token,
+        frame_address,
+        frame_len,
+        rx_rate,
+        rcpi,
+        indication_flags,
+        key_epoch: None,
+    })
 }
 
 /// Publish a claimed (and, if protected, decrypted) frame to the host, or
@@ -1210,14 +1387,26 @@ fn deliver(
     if_id: u8,
     active_channel: u16,
 ) -> Option<PendingIndication> {
-    let Claimed { token, frame_address, frame_len, rx_rate, rcpi, indication_flags, key_epoch } = claimed;
+    let Claimed {
+        token,
+        frame_address,
+        frame_len,
+        rx_rate,
+        rcpi,
+        indication_flags,
+        key_epoch,
+    } = claimed;
     // SAFETY: the slot is claimed and was checked to fit the packet RAM; the
     // engine is done with it, and it is only read here.
     let frame = unsafe { frame_bytes(frame_address, frame_len) };
     // A completed/prefetched decrypt can cross a key change before delivery.
     // Reject revoked authority before it can move a peer's reorder window.
     if indication_flags & 7 == 3
-        && !key_epoch.is_some_and(|epoch| crypto.as_ref().is_some_and(|crypto| crypto.rx_key_epoch_is_active(if_id, epoch)))
+        && !key_epoch.is_some_and(|epoch| {
+            crypto
+                .as_ref()
+                .is_some_and(|crypto| crypto.rx_key_epoch_is_active(if_id, epoch))
+        })
     {
         count_decrypt_failure(crate::crypto::CcmpError::MissingKey);
         fifo.filtered();
@@ -1244,7 +1433,15 @@ fn deliver(
     }
 
     let message_length = frame_len + WSM_RX_HEADROOM;
-    write_indication_header(frame_address, message_length, if_id, active_channel, rx_rate, rcpi, indication_flags);
+    write_indication_header(
+        frame_address,
+        message_length,
+        if_id,
+        active_channel,
+        rx_rate,
+        rcpi,
+        indication_flags,
+    );
     let mut indication = PendingIndication {
         address: (frame_address - WSM_RX_HEADROOM) as u32,
         length: message_length as u16,
@@ -1257,16 +1454,23 @@ fn deliver(
         let now = crate::platform::timer_now();
         #[cfg(not(target_arch = "arm"))]
         let now = 0;
-        match sessions.admit(peer, tid, sequence, indication, now, &mut |indication: PendingIndication| {
-            fifo.release(indication.release)
-        }) {
+        match sessions.admit(
+            peer,
+            tid,
+            sequence,
+            indication,
+            now,
+            &mut |indication: PendingIndication| fifo.release(indication.release),
+        ) {
             None => return crypto.and_then(|crypto| take_ready(fifo, sessions, crypto, if_id)),
             Some(returned) => indication = returned,
         }
     }
     // The scan path, without keys, passes beacons and probe responses
     // alone; any frame it decrypted would be dropped here.
-    if !crypto.map_or(indication_flags & 7 != 3, |crypto| fresh(crypto, if_id, &indication)) {
+    if !crypto.map_or(indication_flags & 7 != 3, |crypto| {
+        fresh(crypto, if_id, &indication)
+    }) {
         drop_replay(fifo, indication.release);
         return None;
     }
@@ -1300,7 +1504,10 @@ mod tests {
         let offsets = [FIFO_SIZE - 0x100, FIFO_SIZE - 0x80, 0, 0x80, 0x100];
         let read = |offset| {
             let index = offsets[..4].iter().position(|&slot| slot == offset)?;
-            Some((offsets[index + 1], crate::tx::ampdu::parse_block_ack(&frames[index])))
+            Some((
+                offsets[index + 1],
+                crate::tx::ampdu::parse_block_ack(&frames[index]),
+            ))
         };
         let claim = offsets[0];
         let producer = offsets[4];
@@ -1308,7 +1515,10 @@ mod tests {
         while let Some(ack) = cursor.next(claim, producer, read) {
             routed.push((ack.receiver, ack.transmitter));
         }
-        assert_eq!(routed, [([2; 6], [4; 6]), ([6; 6], [8; 6]), ([2; 6], [10; 6])]);
+        assert_eq!(
+            routed,
+            [([2; 6], [4; 6]), ([6; 6], [8; 6]), ([2; 6], [10; 6])]
+        );
         // Normal RX reaches those slots later: none can route a second time.
         for index in [0, 2, 3] {
             assert!(!cursor.take(offsets[index], producer, offsets[index], offsets[index + 1]));
@@ -1323,25 +1533,35 @@ mod tests {
     fn block_ack_offsets_reused_after_a_full_fifo_cycle_are_new_frames() {
         let mut cursor = BlockAckCursor::new();
         let ack = crate::tx::ampdu::parse_block_ack(&ack_frame(2, 4)).unwrap();
-        assert_eq!(cursor.next(0, 0x180, |offset| match offset {
-            0 => Some((0x100, None)),
-            0x100 => Some((0x180, Some(ack))),
-            _ => None,
-        }), Some(ack));
+        assert_eq!(
+            cursor.next(0, 0x180, |offset| match offset {
+                0 => Some((0x100, None)),
+                0x100 => Some((0x180, Some(ack))),
+                _ => None,
+            }),
+            Some(ack)
+        );
         // Ordinary RX consumes a full turn of non-ACK traffic. Lookahead
         // sees each new claim head, just as it does in the firmware loop.
         for claim in (0x180..FIFO_SIZE).step_by(0x80) {
             let producer = (claim + 0x80) % FIFO_SIZE;
-            assert!(cursor.next(claim, producer, |_| Some((producer, None))).is_none());
+            assert!(
+                cursor
+                    .next(claim, producer, |_| Some((producer, None)))
+                    .is_none()
+            );
         }
         // The old routed=0x180 now lies numerically inside a new backlog.
         // This ACK is not a duplicate even though it is before that offset.
-        assert_eq!(cursor.next(0, 0x200, |offset| match offset {
-            0 => Some((0x80, None)),
-            0x80 => Some((0x100, Some(ack))),
-            0x100 => Some((0x200, None)),
-            _ => None,
-        }), Some(ack));
+        assert_eq!(
+            cursor.next(0, 0x200, |offset| match offset {
+                0 => Some((0x80, None)),
+                0x80 => Some((0x100, Some(ack))),
+                0x100 => Some((0x200, None)),
+                _ => None,
+            }),
+            Some(ack)
+        );
         assert!(!cursor.take(0x80, 0x200, 0x80, 0x100));
     }
 
@@ -1371,11 +1591,14 @@ mod tests {
     fn resync_expires_passed_markers_but_preserves_unread_ack_dedup() {
         let mut fifo = Fifo::new();
         let ack = crate::tx::ampdu::parse_block_ack(&ack_frame(2, 4)).unwrap();
-        assert_eq!(fifo.block_ack.next(0, 0x300, |offset| match offset {
-            0 => Some((0x180, None)),
-            0x180 => Some((0x200, Some(ack))),
-            _ => None,
-        }), Some(ack));
+        assert_eq!(
+            fifo.block_ack.next(0, 0x300, |offset| match offset {
+                0 => Some((0x180, None)),
+                0x180 => Some((0x200, Some(ack))),
+                _ => None,
+            }),
+            Some(ack)
+        );
         // Keep the release deferred, so this calls the production resync
         // adapter without touching the DMA consumer register on the host.
         assert!(fifo.ring.publish_host_transfer(1));
@@ -1455,12 +1678,27 @@ mod tests {
             frame
         };
         // As a station: from our AP (FromDS) only.
-        assert_eq!(session_frame(&qos_data(0x02, own, ap), own, Some(ap)), Some((ap, 5, 7)));
-        assert_eq!(session_frame(&qos_data(0x02, own, station), own, Some(ap)), None);
+        assert_eq!(
+            session_frame(&qos_data(0x02, own, ap), own, Some(ap)),
+            Some((ap, 5, 7))
+        );
+        assert_eq!(
+            session_frame(&qos_data(0x02, own, station), own, Some(ap)),
+            None
+        );
         // As an access point: from any station (ToDS), to us.
-        assert_eq!(session_frame(&qos_data(0x01, own, station), own, None), Some((station, 5, 7)));
-        assert_eq!(session_frame(&qos_data(0x02, own, station), own, None), None);
-        assert_eq!(session_frame(&qos_data(0x01, [9; 6], station), own, None), None);
+        assert_eq!(
+            session_frame(&qos_data(0x01, own, station), own, None),
+            Some((station, 5, 7))
+        );
+        assert_eq!(
+            session_frame(&qos_data(0x02, own, station), own, None),
+            None
+        );
+        assert_eq!(
+            session_frame(&qos_data(0x01, [9; 6], station), own, None),
+            None
+        );
     }
 
     #[test]

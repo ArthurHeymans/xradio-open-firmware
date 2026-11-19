@@ -213,7 +213,8 @@ impl Contexts {
     }
 
     fn internal_ids(&self) -> impl Iterator<Item = ContextId> {
-        (0..INTERNAL_CONTEXT_COUNT - usize::from(self.beacon_reserved.get())).filter_map(ContextId::internal)
+        (0..INTERNAL_CONTEXT_COUNT - usize::from(self.beacon_reserved.get()))
+            .filter_map(ContextId::internal)
     }
 
     /// The beacon's packet-RAM frame buffer, reserved until
@@ -246,7 +247,6 @@ impl Contexts {
     pub(crate) fn internal_in_use(&self) -> usize {
         self.internal_ids().filter(|id| !id.get().is_free()).count()
     }
-
 }
 
 /// Where an internal context's frame starts in its packet-RAM buffer.

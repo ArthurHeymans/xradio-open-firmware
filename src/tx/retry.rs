@@ -94,7 +94,11 @@ pub(crate) fn resolve_head_retry_step(
 
 /// TX-success marker reset gate (`0x9d06..0x9d2c`): active pipe, slot retry
 /// rate `0xff` and PAS bit 15 clear.
-pub(crate) const fn success_marker_resets_backoff(pipe_state: u8, retry_rate: u8, control_bits: u32) -> bool {
+pub(crate) const fn success_marker_resets_backoff(
+    pipe_state: u8,
+    retry_rate: u8,
+    control_bits: u32,
+) -> bool {
     pipe_state == 1 && retry_rate == 0xff && control_bits & (1 << 15) == 0
 }
 
@@ -146,8 +150,7 @@ pub(crate) fn rearm_single_frame(live: LiveTxSlot, pending_mask: u32) {
     } else if context.frame_kind.get() != 0xff {
         // The vendor repeats descriptor-flag publication for a frame expecting
         // a response before clearing the command ownership bit.
-        let descriptor_flags =
-            mmio.read(descriptor.flags()) | u32::from(status).wrapping_add(0x80);
+        let descriptor_flags = mmio.read(descriptor.flags()) | u32::from(status).wrapping_add(0x80);
         mmio.write(descriptor.flags(), descriptor_flags);
     }
     let command_mask = mmio.read(ring.cursor_and_pending_mask());
@@ -186,19 +189,39 @@ fn rearm_protected_pair(live: LiveTxSlot, pending_mask: u32) -> bool {
     if pipe.slot(data_slot).frame.get() != Some(live.context) {
         terminal_probe_backend_fault(live.pipe);
     }
-    if live.slot == data_slot { context.flags.set(context.flags.get() | 0x10); }
-    if prepare_single_frame_pas_timing(context).is_err() { return false; }
-    let replay_prefix = context.protection.get().is_some_and(|timing|
-        timing.kind == Protection::Rts || context.tx_rate.get() > 3);
-    if !replay_prefix { context.flags.set(context.flags.get() & !(1 << 15)); }
-    if live.slot == data_slot
-        && emit_descriptor(context, live.command() + 0x0c).is_err()
-    { return false; }
-    if emit_protection_descriptor(context, packet_ram::tx_command(usize::from(live.pipe), usize::from(prefix_slot)) as u32).is_err() {
+    if live.slot == data_slot {
+        context.flags.set(context.flags.get() | 0x10);
+    }
+    if prepare_single_frame_pas_timing(context).is_err() {
+        return false;
+    }
+    let replay_prefix = context
+        .protection
+        .get()
+        .is_some_and(|timing| timing.kind == Protection::Rts || context.tx_rate.get() > 3);
+    if !replay_prefix {
+        context.flags.set(context.flags.get() & !(1 << 15));
+    }
+    if live.slot == data_slot && emit_descriptor(context, live.command() + 0x0c).is_err() {
+        return false;
+    }
+    if emit_protection_descriptor(
+        context,
+        packet_ram::tx_command(usize::from(live.pipe), usize::from(prefix_slot)) as u32,
+    )
+    .is_err()
+    {
         return false;
     }
     context.flags.set(context.flags.get() & !0x000c_0000);
-    execute_protected_retry(&mut Mmio, pipes, live.pipe, live.context, pending_mask, replay_prefix);
+    execute_protected_retry(
+        &mut Mmio,
+        pipes,
+        live.pipe,
+        live.context,
+        pending_mask,
+        replay_prefix,
+    );
     true
 }
 
@@ -206,15 +229,24 @@ fn rearm_protected_pair(live: LiveTxSlot, pending_mask: u32) -> bool {
 fn give_up_protected_pair(live: LiveTxSlot, pending_mask: u32) {
     let pipes = pipes();
     let pipe = pipes.pipe(live.pipe);
-    let Some(ring) = pipe.hardware_ring(live.pipe) else { terminal_probe_backend_fault(live.pipe) };
+    let Some(ring) = pipe.hardware_ring(live.pipe) else {
+        terminal_probe_backend_fault(live.pipe)
+    };
     Mmio.write(PIPE_IRQ_TRIGGER, (1_u32 << live.pipe) << 25);
     for slot in unfinished_slots(pipe.current.get(), pipe.last.get()) {
-        if let Some(live) = LiveTxSlot::new(pipes, live.pipe, slot) { complete_tx_pipe_slot(live, 0x0b); }
+        if let Some(live) = LiveTxSlot::new(pipes, live.pipe, slot) {
+            complete_tx_pipe_slot(live, 0x0b);
+        }
         Mmio.write(ring.completion_word(), 1);
     }
     pipe.current.set(pipe.last.get());
-    pipe.apply_cursor(OrdinaryTxPipeCursorPlan::Recycle { next_head: (pipe.last.get() + 1) & 3 });
-    Mmio.write(PIPE_IRQ_PENDING, 0_u32.wrapping_sub(pending_mask.wrapping_add(0x10)));
+    pipe.apply_cursor(OrdinaryTxPipeCursorPlan::Recycle {
+        next_head: (pipe.last.get() + 1) & 3,
+    });
+    Mmio.write(
+        PIPE_IRQ_PENDING,
+        0_u32.wrapping_sub(pending_mask.wrapping_add(0x10)),
+    );
 }
 
 /// `txp_pipe_tx_done_retry` (`0x9550`) for the current slot of the latched
@@ -272,18 +304,26 @@ pub(crate) fn service_tx_retry(backend: &mut SingleProbeMacBackend, owned_mask: 
     }
     let decision = if slot.prefix.get().is_some() {
         let index = pipe_slot_state_index(pipe_index, current).unwrap();
-        let limit = backend.rate_policies.get(live.context.get().retry_policy.get())
+        let limit = backend
+            .rate_policies
+            .get(live.context.get().retry_policy.get())
             .map_or(SINGLE_TX_MAX_RETRIES, |policy| policy.long_retries());
         let decision = backend.retry[index].decide_with_limit(limit);
         if decision == SingleTxRetryDecision::GiveUp {
-            let _ = crate::backoff::reset(crate::backoff::banks(), live.context.get().interface.get(), live.context.get().access_category.get());
+            let _ = crate::backoff::reset(
+                crate::backoff::banks(),
+                live.context.get().interface.get(),
+                live.context.get().access_category.get(),
+            );
         }
         decision
     } else {
         backend.decide_retry(pipe_index, current, live.context)
     };
     if protected {
-        if decision == SingleTxRetryDecision::Rearm && rearm_protected_pair(live, owned_mask) { return; }
+        if decision == SingleTxRetryDecision::Rearm && rearm_protected_pair(live, owned_mask) {
+            return;
+        }
         give_up_protected_pair(live, owned_mask);
         return;
     }

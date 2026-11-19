@@ -19,7 +19,10 @@ impl RegisterWindow {
     /// run of the firmware, whose reads and writes cannot change memory that
     /// Rust owns: no DMA addresses, lengths or triggers.
     pub const unsafe fn new(start: usize, len: usize) -> Self {
-        Self { start, end: start + len }
+        Self {
+            start,
+            end: start + len,
+        }
     }
 
     fn checked<T>(&self, address: usize) -> *mut T {
@@ -89,7 +92,10 @@ pub fn mac_objects(address: usize) -> RegisterWindow {
         let list = packet_ram::automatic_response_list();
         (list.start, list.end)
     } else {
-        (packet_ram::response_pointers().start, packet_ram::interface_metadata() + packet_ram::INTERFACE_METADATA_SIZE)
+        (
+            packet_ram::response_pointers().start,
+            packet_ram::interface_metadata() + packet_ram::INTERFACE_METADATA_SIZE,
+        )
     };
     // SAFETY: linker-placed packet-RAM objects only the MAC and these
     // volatile accesses touch.
@@ -98,5 +104,9 @@ pub fn mac_objects(address: usize) -> RegisterWindow {
 
 /// The window holding `address`: the PHY's, or platform control's.
 pub fn phy_window(address: usize) -> &'static RegisterWindow {
-    if address >= 0x0ac8_0000 { &PLATFORM_CONTROL } else { &PHY }
+    if address >= 0x0ac8_0000 {
+        &PLATFORM_CONTROL
+    } else {
+        &PHY
+    }
 }

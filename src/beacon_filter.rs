@@ -58,7 +58,11 @@ impl BeaconFilter {
     pub const fn new() -> Self {
         Self {
             enabled: false,
-            entries: [Entry { id: 0, flags: 0, oui: [0; 3] }; MAX_ENTRIES],
+            entries: [Entry {
+                id: 0,
+                flags: 0,
+                oui: [0; 3],
+            }; MAX_ENTRIES],
             count: 0,
             seen: None,
             other_bss_by_rx_filter: false,
@@ -68,14 +72,19 @@ impl BeaconFilter {
 
     /// MIB 0x1003: filter flags.
     pub fn set_rx_filter(&mut self, data: &[u8]) -> bool {
-        let Some(flags) = data.first_chunk::<4>() else { return false };
-        self.other_bss_by_rx_filter = u32::from_le_bytes(*flags) & (RX_FILTER_PROMISCUOUS | RX_FILTER_OTHER_BSS) != 0;
+        let Some(flags) = data.first_chunk::<4>() else {
+            return false;
+        };
+        self.other_bss_by_rx_filter =
+            u32::from_le_bytes(*flags) & (RX_FILTER_PROMISCUOUS | RX_FILTER_OTHER_BSS) != 0;
         true
     }
 
     /// MIB 0x1026: non-zero turns the BSSID filter off.
     pub fn set_bssid_filter(&mut self, data: &[u8]) -> bool {
-        let Some(&disabled) = data.first() else { return false };
+        let Some(&disabled) = data.first() else {
+            return false;
+        };
         self.other_bss_by_bssid_filter = disabled != 0;
         true
     }
@@ -89,14 +98,24 @@ impl BeaconFilter {
     /// MIB 0x1004: a count, then that many eight-octet entries (element ID,
     /// flags, OUI, match data).
     pub fn set_table(&mut self, data: &[u8]) -> bool {
-        let Some((count, entries)) = data.split_first_chunk::<4>() else { return false };
+        let Some((count, entries)) = data.split_first_chunk::<4>() else {
+            return false;
+        };
         let count = u32::from_le_bytes(*count) as usize;
         if count > MAX_ENTRIES || entries.len() < count * ENTRY_LEN {
             return false;
         }
-        entries.chunks_exact(ENTRY_LEN).take(count).zip(&mut self.entries).for_each(|(raw, entry)| {
-            *entry = Entry { id: raw[0], flags: raw[1], oui: [raw[2], raw[3], raw[4]] };
-        });
+        entries
+            .chunks_exact(ENTRY_LEN)
+            .take(count)
+            .zip(&mut self.entries)
+            .for_each(|(raw, entry)| {
+                *entry = Entry {
+                    id: raw[0],
+                    flags: raw[1],
+                    oui: [raw[2], raw[3], raw[4]],
+                };
+            });
         self.count = count;
         self.seen = None;
         true
@@ -105,7 +124,9 @@ impl BeaconFilter {
     /// MIB 0x1005: enable flags, then the beacon count, which cw1200 leaves
     /// zero while filtering.
     pub fn set_control(&mut self, data: &[u8]) -> bool {
-        let Some(enabled) = data.first_chunk::<4>() else { return false };
+        let Some(enabled) = data.first_chunk::<4>() else {
+            return false;
+        };
         self.enabled = u32::from_le_bytes(*enabled) & ENABLE != 0;
         self.seen = None;
         true
@@ -122,20 +143,34 @@ impl BeaconFilter {
             return true;
         }
         let elements = beacon.get(ELEMENTS_OFFSET..).unwrap_or(&[]);
-        let switching = CHANNEL_SWITCH
-            .iter()
-            .any(|&id| fingerprint(elements, Entry { id, flags: 0, oui: [0; 3] }).is_some());
-        let now: [Option<u32>; MAX_ENTRIES] =
-            core::array::from_fn(|index| (index < self.count).then(|| fingerprint(elements, self.entries[index])).flatten());
+        let switching = CHANNEL_SWITCH.iter().any(|&id| {
+            fingerprint(
+                elements,
+                Entry {
+                    id,
+                    flags: 0,
+                    oui: [0; 3],
+                },
+            )
+            .is_some()
+        });
+        let now: [Option<u32>; MAX_ENTRIES] = core::array::from_fn(|index| {
+            (index < self.count)
+                .then(|| fingerprint(elements, self.entries[index]))
+                .flatten()
+        });
         let changed = self.seen.is_none_or(|seen| {
-            self.entries[..self.count].iter().zip(seen.iter().zip(&now)).any(|(entry, (before, after))| {
-                match (before, after) {
-                    (Some(before), Some(after)) => entry.flags & HAS_CHANGED != 0 && before != after,
+            self.entries[..self.count]
+                .iter()
+                .zip(seen.iter().zip(&now))
+                .any(|(entry, (before, after))| match (before, after) {
+                    (Some(before), Some(after)) => {
+                        entry.flags & HAS_CHANGED != 0 && before != after
+                    }
                     (Some(_), None) => entry.flags & NO_LONGER_PRESENT != 0,
                     (None, Some(_)) => entry.flags & HAS_APPEARED != 0,
                     (None, None) => false,
-                }
-            })
+                })
         });
         if changed {
             self.seen = Some(now);
@@ -150,7 +185,9 @@ fn fingerprint(mut elements: &[u8], entry: Entry) -> Option<u32> {
     while let [id, length, rest @ ..] = elements {
         let body = rest.get(..usize::from(*length))?;
         if *id == entry.id && (entry.id != VENDOR_SPECIFIC || body.starts_with(&entry.oui)) {
-            return Some(body.iter().fold(0x811c_9dc5_u32, |hash, &byte| (hash ^ u32::from(byte)).wrapping_mul(0x0100_0193)));
+            return Some(body.iter().fold(0x811c_9dc5_u32, |hash, &byte| {
+                (hash ^ u32::from(byte)).wrapping_mul(0x0100_0193)
+            }));
         }
         elements = &rest[usize::from(*length)..];
     }

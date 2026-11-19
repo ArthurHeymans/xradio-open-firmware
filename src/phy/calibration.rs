@@ -512,7 +512,12 @@ impl IqCalibrationScratch {
 /// One calibration at a time: a second borrow halts.
 pub(super) static IQ_CALIBRATION_SCRATCH: Global<core::cell::RefCell<IqCalibrationScratch>> =
     Global::new(core::cell::RefCell::new(IqCalibrationScratch {
-        samples: [IqCalibrationSample { baseline_i: 0, baseline_q: 0, target_i: 0, target_q: 0 }; 12],
+        samples: [IqCalibrationSample {
+            baseline_i: 0,
+            baseline_q: 0,
+            target_i: 0,
+            target_q: 0,
+        }; 12],
         series: MaybeUninit::uninit(),
         built: false,
     }));
@@ -853,7 +858,12 @@ pub fn publish_dynamic_iq_final_state(
     // The vendor also stores the quality flags and values; nothing reads them.
     if finalization.publication.is_some() {
         let phy = self::state();
-        if alternate_profile { &phy.profile1_ready } else { &phy.profile0_ready }.set(1);
+        if alternate_profile {
+            &phy.profile1_ready
+        } else {
+            &phy.profile0_ready
+        }
+        .set(1);
     }
 }
 
@@ -865,15 +875,28 @@ pub fn publish_dynamic_iq_final_state(
 /// stages program may lie outside the range.
 pub fn reject_out_of_range_dynamic_iq(values: [i32; 4]) -> [i32; 4] {
     core::array::from_fn(|index| {
-        let (wrap_above, span, limit) =
-            if index < 2 { (0x1ff, 0x400, 0x200) } else { (0x7ff, 0x1000, 0x800) };
+        let (wrap_above, span, limit) = if index < 2 {
+            (0x1ff, 0x400, 0x200)
+        } else {
+            (0x7ff, 0x1000, 0x800)
+        };
         let value = values[index];
-        let wrapped = if value > wrap_above { value.wrapping_sub(span) } else { value };
-        if (-limit..=limit).contains(&wrapped) { value } else { 0 }
+        let wrapped = if value > wrap_above {
+            value.wrapping_sub(span)
+        } else {
+            value
+        };
+        if (-limit..=limit).contains(&wrapped) {
+            value
+        } else {
+            0
+        }
     })
 }
 
-pub(super) fn dynamic_iq_metrics<const N: usize>(correlations: [DynamicIqCorrelation; N]) -> [i32; N] {
+pub(super) fn dynamic_iq_metrics<const N: usize>(
+    correlations: [DynamicIqCorrelation; N],
+) -> [i32; N] {
     let mut maximum = 0_i32;
     for correlation in correlations {
         maximum = maximum
@@ -1574,9 +1597,7 @@ pub fn begin_dynamic_iq_band_registers(
     snapshot.abb80a8 = reg_read(0x0abb_80a8);
     snapshot.abb81a8 = reg_read(0x0abb_81a8);
     write_u32(0x0abb_81a8, 2);
-    write_dynamic_iq_calibration_command(dynamic_iq_calibration_start_words(
-        calibration_command,
-    ));
+    write_dynamic_iq_calibration_command(dynamic_iq_calibration_start_words(calibration_command));
     snapshot.abb8004 = reg_read(0x0abb_8004);
     write_u32(0x0abb_8004, 0x0019_8600);
     delay_units(6);
@@ -1660,7 +1681,12 @@ pub(super) fn dynamic_iq_table_scale(table: &[i16; 64], phase: u32, sample: i32)
     sample.wrapping_mul(i32::from(table[(phase & 0x3f) as usize])) >> 5
 }
 
-pub(super) fn dynamic_iq_accumulate(correlation: &mut (i32, i32), phase: &mut u32, step: u32, sample: i32) {
+pub(super) fn dynamic_iq_accumulate(
+    correlation: &mut (i32, i32),
+    phase: &mut u32,
+    step: u32,
+    sample: i32,
+) {
     correlation.0 =
         correlation
             .0
@@ -1811,7 +1837,9 @@ pub fn run_dynamic_iq_hardware_search(
             // caller-supplied DFT mode.
             let mut stage_dft = dft_configuration;
             stage_dft.mode = stage;
-            let result = execute_dynamic_iq_hardware_stage(candidate, execution, control, stage_dft, samples);
+            let result = execute_dynamic_iq_hardware_stage(
+                candidate, execution, control, stage_dft, samples,
+            );
             all_captures_ready &= result.capture_ready;
             Some(result.measurement)
         },
@@ -1838,8 +1866,7 @@ pub fn execute_dynamic_iq_hardware_verification(
     replicate_dynamic_iq_correction_banks(publication);
     let control = dynamic_iq_verification_control(control_configuration);
     apply_dynamic_iq_capture_control(control);
-    let capture_ready =
-        capture_dynamic_iq_samples(samples, dft_configuration.capture_polls);
+    let capture_ready = capture_dynamic_iq_samples(samples, dft_configuration.capture_polls);
     // The vendor verification path stores stage 1 before its final capture.
     let measurement = dynamic_iq_dft(
         samples,
@@ -1868,7 +1895,8 @@ pub fn run_dynamic_iq_hardware_calibration(
     configuration: DynamicIqHardwareCalibrationConfiguration,
     samples: &mut [u32; 64],
 ) -> DynamicIqHardwareCalibrationResult {
-    let Some(synth_register) = prepare_dynamic_iq_synth_register(configuration.synth_frequency) else {
+    let Some(synth_register) = prepare_dynamic_iq_synth_register(configuration.synth_frequency)
+    else {
         return DynamicIqHardwareCalibrationResult::default();
     };
     let mut snapshot = {
@@ -2038,12 +2066,7 @@ pub fn iq_calibration_publication(
     coefficient: IqCalibrationCoefficient,
     shift_state: u32,
 ) -> Option<IqCalibrationPublication> {
-    iq_calibration_publication_from_source(
-        gain_index,
-        coefficient,
-        coefficient,
-        shift_state,
-    )
+    iq_calibration_publication_from_source(gain_index, coefficient, coefficient, shift_state)
 }
 
 /// Allocation-free twelve-gain arithmetic and publication plan from the main
@@ -2055,9 +2078,8 @@ pub(super) fn build_iq_calibration_series_in<'a>(
 ) -> &'a mut IqCalibrationSeries {
     let series = output.as_mut_ptr();
     // SAFETY: field projection of `output`'s storage; nothing is read.
-    let iterations = unsafe {
-        core::ptr::addr_of_mut!((*series).iterations).cast::<IqCalibrationIteration>()
-    };
+    let iterations =
+        unsafe { core::ptr::addr_of_mut!((*series).iterations).cast::<IqCalibrationIteration>() };
     let mut final_shift_state = initial_shift_state;
     for index in 0..12 {
         let sample = samples[index];
@@ -2241,10 +2263,8 @@ pub(super) fn finish_iq_calibration_hardware(
 pub(super) fn run_iq_calibration_core(
     include_secondary: bool,
     max_polls: u32,
-) -> Result<
-    (IqCalibrationReferences, Option<IqCalibrationCoefficient>),
-    IqCalibrationHardwareError,
-> {
+) -> Result<(IqCalibrationReferences, Option<IqCalibrationCoefficient>), IqCalibrationHardwareError>
+{
     const EMPTY_SAMPLE: IqCalibrationSample = IqCalibrationSample {
         baseline_i: 0,
         baseline_q: 0,
@@ -2258,13 +2278,15 @@ pub(super) fn run_iq_calibration_core(
         let shift_state = reg_read(0x0abb_8680);
         self::state().measurement_shift_state.set(shift_state);
     }
-    let initial_shift_state = {
-        self::state().measurement_shift_state.get()
-    };
+    let initial_shift_state = { self::state().measurement_shift_state.get() };
     configure_calibration_mode(0);
     let snapshot = begin_iq_calibration_path(0, 0);
     let mut scratch = IQ_CALIBRATION_SCRATCH.borrow_mut();
-    let IqCalibrationScratch { samples, series: series_storage, built } = &mut *scratch;
+    let IqCalibrationScratch {
+        samples,
+        series: series_storage,
+        built,
+    } = &mut *scratch;
     *built = false;
     samples.fill(EMPTY_SAMPLE);
     for (index, gain_index) in IQ_CALIBRATION_GAIN_INDICES.iter().copied().enumerate() {
@@ -2353,8 +2375,7 @@ pub fn run_iq_calibration(
     include_secondary: bool,
     max_polls: u32,
 ) -> Result<IqCalibrationHardwareResult, IqCalibrationHardwareError> {
-    let (references, secondary) =
-        run_iq_calibration_core(include_secondary, max_polls)?;
+    let (references, secondary) = run_iq_calibration_core(include_secondary, max_polls)?;
     let Some(&series) = IQ_CALIBRATION_SCRATCH.borrow().series() else {
         crate::halt_always!();
     };

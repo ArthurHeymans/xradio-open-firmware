@@ -7,20 +7,18 @@
 #[cfg(test)]
 extern crate std;
 
-mod init_data;
 pub mod activity;
 pub mod ap;
 pub(crate) mod backoff;
-pub mod cpu;
 pub mod beacon_filter;
 pub mod beacon_loss;
-pub mod signal;
-pub mod counters;
-pub mod deadline;
 #[cfg(target_arch = "arm")]
 pub mod command;
 pub mod configuration;
+pub mod counters;
+pub mod cpu;
 pub mod crypto;
+pub mod deadline;
 pub mod download;
 pub mod exception;
 #[cfg(target_arch = "arm")]
@@ -28,7 +26,9 @@ pub mod firmware;
 pub mod frame;
 pub mod global;
 pub mod hif;
+mod init_data;
 pub mod interrupts;
+pub mod signal;
 /// Halts the firmware.
 ///
 /// Use where continuing past the detected condition would corrupt state the
@@ -50,8 +50,8 @@ macro_rules! halt_always {
 pub mod join;
 pub(crate) mod key_change;
 pub mod loader;
-pub mod mmio;
 pub mod mac;
+pub mod mmio;
 pub mod packet_ram;
 pub mod phy;
 pub mod platform;
@@ -59,8 +59,8 @@ pub mod power_save;
 pub mod radio;
 pub mod rate_policy;
 pub mod rx_ba;
-pub mod rx_reorder;
 pub(crate) mod rx_model;
+pub mod rx_reorder;
 pub mod scan;
 pub mod tx;
 pub mod vif;

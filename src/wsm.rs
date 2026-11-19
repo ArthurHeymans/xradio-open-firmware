@@ -227,7 +227,9 @@ pub struct SwitchChannelRequest {
 impl SwitchChannelRequest {
     pub fn parse(payload: &[u8]) -> Result<Self, Error> {
         match payload {
-            [_mode, _count, low, high, ..] => Ok(Self { channel: u16::from_le_bytes([*low, *high]) }),
+            [_mode, _count, low, high, ..] => Ok(Self {
+                channel: u16::from_le_bytes([*low, *high]),
+            }),
             _ => Err(Error::InvalidLength),
         }
     }
@@ -653,7 +655,11 @@ impl<'a> TxRequest<'a> {
         let frame_control = u16::from_le_bytes([frame[0], frame[1]]);
         // A compressed BlockAckReq is a 20-octet control frame; every other frame
         // this path carries has at least the 24-octet data header.
-        let minimum = if frame_control & 0x00fc == 0x0084 { 20 } else { 24 };
+        let minimum = if frame_control & 0x00fc == 0x0084 {
+            20
+        } else {
+            24
+        };
         if frame.len() < minimum {
             return Err(Error::Truncated);
         }
@@ -792,9 +798,14 @@ impl<'a> Request<'a> {
             SWITCH_CHANNEL_REQ_ID => Self::SwitchChannel(SwitchChannelRequest::parse(payload)),
             UPDATE_IE_REQ_ID => Self::UpdateIe(UpdateIeRequest::parse(payload)),
             START_REQ_ID => Self::Start(StartRequest::parse(payload)),
-            BEACON_TRANSMIT_REQ_ID => Self::BeaconTransmit(read_u32(payload, 0).map(|enable| enable != 0)),
+            BEACON_TRANSMIT_REQ_ID => {
+                Self::BeaconTransmit(read_u32(payload, 0).map(|enable| enable != 0))
+            }
             MAP_LINK_REQ_ID => Self::MapLink(
-                payload.get(..6).and_then(|mac| mac.try_into().ok()).ok_or(Error::Truncated),
+                payload
+                    .get(..6)
+                    .and_then(|mac| mac.try_into().ok())
+                    .ok_or(Error::Truncated),
             ),
             _ => Self::Unsupported(id),
         }
@@ -1110,7 +1121,11 @@ pub fn encode_set_pm_complete_indication(psm: u8, output: &mut [u8]) -> Result<u
     if output.len() < LEN {
         return Err(Error::OutputTooSmall);
     }
-    Header { len: LEN as u16, id: SET_PM_COMPLETE_IND_ID }.encode(output)?;
+    Header {
+        len: LEN as u16,
+        id: SET_PM_COMPLETE_IND_ID,
+    }
+    .encode(output)?;
     write_u32(output, HEADER_LEN, 0);
     write_u32(output, HEADER_LEN + 4, u32::from(psm));
     Ok(LEN)
@@ -1129,7 +1144,11 @@ fn encode_status_indication(id: u16, status: u32, output: &mut [u8]) -> Result<u
     if output.len() < LEN {
         return Err(Error::OutputTooSmall);
     }
-    Header { len: LEN as u16, id }.encode(output)?;
+    Header {
+        len: LEN as u16,
+        id,
+    }
+    .encode(output)?;
     write_u32(output, HEADER_LEN, status);
     Ok(LEN)
 }
@@ -1257,22 +1276,50 @@ mod tests {
             panic!("START did not parse");
         };
         assert_eq!(
-            (start.mode, start.channel_number, start.beacon_interval, start.dtim_period, start.ssid, start.basic_rate_set),
+            (
+                start.mode,
+                start.channel_number,
+                start.beacon_interval,
+                start.dtim_period,
+                start.ssid,
+                start.basic_rate_set
+            ),
             (0, 6, 100, 2, &b"xr81"[..], 0x15)
         );
         payload[15] = 33;
-        assert!(matches!(Request::parse(START_REQ_ID, &payload), Request::Start(Err(_))));
-        assert_eq!(Request::parse(BEACON_TRANSMIT_REQ_ID, &1_u32.to_le_bytes()), Request::BeaconTransmit(Ok(true)));
-        assert_eq!(Request::parse(MAP_LINK_REQ_ID, &[1, 2, 3, 4, 5, 6, 0, 0]), Request::MapLink(Ok([1, 2, 3, 4, 5, 6])));
+        assert!(matches!(
+            Request::parse(START_REQ_ID, &payload),
+            Request::Start(Err(_))
+        ));
+        assert_eq!(
+            Request::parse(BEACON_TRANSMIT_REQ_ID, &1_u32.to_le_bytes()),
+            Request::BeaconTransmit(Ok(true))
+        );
+        assert_eq!(
+            Request::parse(MAP_LINK_REQ_ID, &[1, 2, 3, 4, 5, 6, 0, 0]),
+            Request::MapLink(Ok([1, 2, 3, 4, 5, 6]))
+        );
     }
 
     #[test]
     fn requests_decode_by_id_and_keep_malformed_bodies() {
         assert_eq!(Request::parse(STOP_SCAN_REQ_ID, &[]), Request::StopScan);
-        assert_eq!(Request::parse(READ_MIB_REQ_ID, &[0x0c, 0x10, 0, 0]), Request::ReadMib(Some(0x100c)));
-        assert_eq!(Request::parse(READ_MIB_REQ_ID, &[0x0c]), Request::ReadMib(None));
-        assert!(matches!(Request::parse(JOIN_REQ_ID, &[0; 8]), Request::Join(Err(_))));
-        assert!(matches!(Request::parse(TX_REQ_ID, &[]), Request::Tx(Err(_))));
+        assert_eq!(
+            Request::parse(READ_MIB_REQ_ID, &[0x0c, 0x10, 0, 0]),
+            Request::ReadMib(Some(0x100c))
+        );
+        assert_eq!(
+            Request::parse(READ_MIB_REQ_ID, &[0x0c]),
+            Request::ReadMib(None)
+        );
+        assert!(matches!(
+            Request::parse(JOIN_REQ_ID, &[0; 8]),
+            Request::Join(Err(_))
+        ));
+        assert!(matches!(
+            Request::parse(TX_REQ_ID, &[]),
+            Request::Tx(Err(_))
+        ));
         assert_eq!(Request::parse(0x0003, &[]), Request::Unsupported(0x0003));
     }
 
@@ -1339,10 +1386,8 @@ mod tests {
 
     #[test]
     fn set_bss_parameters_match_cw1200_layout() {
-        let parameters = SetBssParameters::parse(&[
-            1, 20, 0x34, 0x12, 0x78, 0x56, 0x34, 0x12,
-        ])
-        .unwrap();
+        let parameters =
+            SetBssParameters::parse(&[1, 20, 0x34, 0x12, 0x78, 0x56, 0x34, 0x12]).unwrap();
 
         assert_eq!(parameters.reset_beacon_loss, 1);
         assert_eq!(parameters.beacon_lost_count, 20);
@@ -1358,12 +1403,18 @@ mod tests {
         assert!(TxQueueParameters::parse(&padded(&[0; 12])).is_ok());
         assert!(EdcaParameters::parse(&padded(&[0; 44])).is_ok());
         assert!(RemoveKeyRequest::parse(&padded(&[0; 4])).is_ok());
-        assert_eq!(AddKeyRequest::parse(&padded(&[0; 44])).unwrap().data.len(), 40);
+        assert_eq!(
+            AddKeyRequest::parse(&padded(&[0; 44])).unwrap().data.len(),
+            40
+        );
         let mib = padded(&[0x03, 0x10, 4, 0, 1, 2, 3, 4]);
         assert_eq!(WriteMibRequest::parse(&mib).unwrap().data, [1, 2, 3, 4]);
         assert!(JoinRequest::parse(&padded(&[0; JoinRequest::PAYLOAD_LEN])).is_ok());
         assert!(StartScanRequest::parse(&padded(&[0; 12])).is_ok());
-        assert_eq!(SwitchChannelRequest::parse(&padded(&[0, 0, 6, 0])), Ok(SwitchChannelRequest { channel: 6 }));
+        assert_eq!(
+            SwitchChannelRequest::parse(&padded(&[0, 0, 6, 0])),
+            Ok(SwitchChannelRequest { channel: 6 })
+        );
     }
 
     #[test]
@@ -1468,7 +1519,10 @@ mod tests {
     #[test]
     fn xr819_multi_tx_confirm_prefixes_count_and_packs_entries() {
         let mut output = [0xaa_u8; 72];
-        assert_eq!(encode_multi_tx_confirm_header(TxConfirmFormat::Xr819, 2, &mut output), Ok(72));
+        assert_eq!(
+            encode_multi_tx_confirm_header(TxConfirmFormat::Xr819, 2, &mut output),
+            Ok(72)
+        );
         assert_eq!(&output[..4], &[72, 0, 0x1e, 0x04]);
         assert_eq!(&output[4..8], &2_u32.to_le_bytes());
         encode_tx_confirm_entry(
@@ -1501,16 +1555,32 @@ mod tests {
         assert_eq!(output[48], 21);
         assert_eq!(output[49], 6);
         assert_eq!(&output[50..52], &2_u16.to_le_bytes());
-        assert_eq!(encode_multi_tx_confirm_header(TxConfirmFormat::Xr819, 0, &mut output), Err(Error::InvalidLength));
+        assert_eq!(
+            encode_multi_tx_confirm_header(TxConfirmFormat::Xr819, 0, &mut output),
+            Err(Error::InvalidLength)
+        );
     }
 
     #[test]
     fn cw1200_multi_tx_confirm_packs_20_byte_entries() {
         let mut output = [0xaa_u8; 48];
-        assert_eq!(encode_multi_tx_confirm_header(TxConfirmFormat::Cw1200, 2, &mut output), Ok(48));
+        assert_eq!(
+            encode_multi_tx_confirm_header(TxConfirmFormat::Cw1200, 2, &mut output),
+            Ok(48)
+        );
         for (index, packet_id) in [0x1111_2222_u32, 0x3333_4444].into_iter().enumerate() {
-            encode_tx_confirm_entry(TxConfirmFormat::Cw1200, packet_id, 0, 21, 1, 0, [7, 8, 9], 8 + index * 20, &mut output)
-                .unwrap();
+            encode_tx_confirm_entry(
+                TxConfirmFormat::Cw1200,
+                packet_id,
+                0,
+                21,
+                1,
+                0,
+                [7, 8, 9],
+                8 + index * 20,
+                &mut output,
+            )
+            .unwrap();
         }
         assert_eq!(&output[28..32], &0x3333_4444_u32.to_le_bytes());
         // Media and queue delay stay zero.
@@ -1608,15 +1678,7 @@ mod tests {
         let mut output = [0_u8; 36];
         let rate_try = [0x0000_0002, 0x3000_0000, 0x0000_0004];
         assert_eq!(
-            encode_xr819_tx_confirm_retry_details(
-                0x1234_5678,
-                0,
-                21,
-                6,
-                1,
-                rate_try,
-                &mut output,
-            ),
+            encode_xr819_tx_confirm_retry_details(0x1234_5678, 0, 21, 6, 1, rate_try, &mut output,),
             Ok(36)
         );
         assert_eq!(&output[..4], &[36, 0, 4, 4]);
