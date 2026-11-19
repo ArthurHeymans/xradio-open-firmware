@@ -5,6 +5,7 @@ The bootloader starts in SRAM, copies the PHY initialization tables, and loads t
 The firmware supports WPA2-CCMP station and access point operation on 2.4 GHz, one stream, 20 MHz. It does not implement WEP, TKIP, IBSS or 5 GHz. A successful association is not a throughput or endurance qualification.
 
 - [Build instructions](../../README.md#build-for-xr819)
+- [Linux driver series and Orange Pi Zero test results](../../docs/orange-pi-zero-smoke.md)
 - [Register reference](../../docs/xr819-hardware-reference.html) (open the HTML locally)
 - [Vendor inputs and checksums](data/README.md)
 
