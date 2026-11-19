@@ -15,7 +15,7 @@ Section type 2 of the vendor container is not consumed by firmware. The download
 
 | Section | Destination | Length | Contents |
 | --- | --- | --- | --- |
-| type 2 (MMIO) | address/value pairs | 0x148 | 41 pairs, listed in 11.2 |
+| type 2 (MMIO) | address/value pairs | 0x148 | [Ordered register writes](#s11-2) |
 | type 0 copy | 0x0ab8_1000 | 0x400 | MAC/PHY table |
 | type 0 copy | 0x0ab8_8400 | 0x330 | MAC/PHY table |
 | type 0 copy | 0x0ab8_8800 | 0x330 | MAC/PHY table |

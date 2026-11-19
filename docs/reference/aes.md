@@ -6,7 +6,7 @@ section: Hardware reference
 
 The CCMP engine takes keys and authenticated header data through a FIFO. It moves the frame payload through packet RAM by DMA. The initialization port is a different register.
 
-A byte-oriented command engine with a 32-bit input FIFO and two DMA pointers. Commands are either FIFO writes (key material, CCM context, AAD stream) or a start word that names an operation and takes the payload from the DMA registers. The engine keeps the loaded key across transfers.
+For each transfer the firmware stages words in the FIFO, issues commands through the command/status register, and gives the engine a DMA address and payload length. It need not reload an unchanged key.
 
 ## Register map
 {:#s10-1}

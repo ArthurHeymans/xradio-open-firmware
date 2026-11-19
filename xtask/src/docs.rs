@@ -252,6 +252,10 @@ pub fn generate(root: &Path) -> Result<()> {
         dir.join("LoaderWrites.md"),
         values::loader(&fs::read_to_string(root.join("src/loader.rs"))?)?,
     )?;
+    fs::write(
+        dir.join("Messages.md"),
+        values::messages(&fs::read_to_string(root.join("src/wsm.rs"))?)?,
+    )?;
     index.sort();
     let mut out = String::from("| CPU base | Firmware block |\n|---:|---|\n");
     for (addr, name, page) in index {

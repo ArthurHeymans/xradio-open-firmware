@@ -94,6 +94,30 @@ pub(super) fn loader(source: &str) -> Result<String> {
     }
     Ok(md)
 }
+pub(super) fn messages(source: &str) -> Result<String> {
+    let mut entries = Vec::new();
+    for item in syn::parse_file(source)?.items {
+        let Item::Const(c) = item else { continue };
+        let name = c.ident.to_string();
+        if !name.ends_with("_ID") {
+            continue;
+        }
+        let id = number(&c.expr).context("expected literal WSM message ID")?;
+        let direction = if name.ends_with("_REQ_ID") {
+            "host → firmware"
+        } else {
+            "firmware → host"
+        };
+        entries.push((id, name, direction));
+    }
+    ensure!(!entries.is_empty(), "missing WSM message IDs");
+    entries.sort();
+    let mut md = String::from("| ID | Direction | Message constant |\n|---:|---|---|\n");
+    for (id, name, direction) in entries {
+        writeln!(md, "| `0x{id:04x}` | {direction} | `{name}` |")?;
+    }
+    Ok(md)
+}
 pub(super) fn windows(source: &str) -> Result<Vec<(u32, String, String)>> {
     let mut rows = Vec::new();
     for i in syn::parse_file(source)?.items {

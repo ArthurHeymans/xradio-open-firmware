@@ -60,7 +60,7 @@ A command descriptor is a stream of 32-bit words consumed by the MAC in order. W
 | 0x47 | constant | Fixed macro command in every control-frame template. | Inferred |
 | 0x60, 0x68, 0x69 | constant | BlockAck template segments. | Inferred |
 | 0x07 | flag pattern | MAC fill/insert macro. `0x0700_8400` has the MAC insert the 8-octet timestamp (beacon, probe response); `0x0700_4600` closes a descriptor; `0x0700_2008`/`0x0700_2004` select an ACK/CTS response path; `0x0700_6828`/`0x0700_6820` arm BlockAck handling. | Observed |
-| 0x65 | `cpu & 0x001f_fffc` | A-MPDU member transfer (see 9.4). | Observed |
+| 0x65 | `cpu & 0x001f_fffc` | A-MPDU member transfer (see [A-MPDU command stream](#s9-4)). | Observed |
 | 0x66 | none | A-MPDU inter-member delimiter. | Observed |
 | 0xe4 | none | A-MPDU terminal command. | Observed |
 | 0xf0 | none | Descriptor terminator. | Observed |

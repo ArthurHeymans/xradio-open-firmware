@@ -15,7 +15,7 @@ The controller is a plain 32-source level/latched aggregator with one FIQ output
 
 - **ACKNOWLEDGE**: Write one bits to clear the corresponding pending source. Writing the value read from `+0x20` is the normal acknowledge.
 
-- **VECTOR_BASE**: Vendor writes `0x1500_0000`-equivalent form `BASE << 9`. The open firmware does not use vectored dispatch.
+- **VECTOR_BASE**: The firmware writes `(BASE as u32) << 9`. This is an encoded vector-base word, not a CPU address to dereference.
 
 - **ENABLE**: Bit *n* lets source *n* reach the CPU. The IRQ handler clears the bits of every pending source before acknowledging (mask-on-entry, re-arm by the owner).
 

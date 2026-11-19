@@ -6,7 +6,7 @@ section: Hardware reference
 
 {% include registers/PlatformControl.md %}
 
-- **SHARED_POINTER**: `0x0004_0090` in the DMA path. Points into DTCM.
+- **SHARED_POINTER**: The DMA setup writes `0x0004_0090`. Its encoding is not established; the value is not a CPU-form DTCM address.
 
 - **POWER_CONTROL**: `0x10`.
 

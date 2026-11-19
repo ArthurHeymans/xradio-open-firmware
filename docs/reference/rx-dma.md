@@ -4,7 +4,7 @@ section: Hardware reference
 ---
 # Receive DMA and FIFO
 
-Packet DMA is the only writer of received frames. It appends complete 802.11 frames, each prefixed by a 0x20-byte header and followed by a 4-byte-aligned trailer, into the RX FIFO ring and advances a producer offset. The firmware reads the producer, claims slots, publishes a consumer offset, and releases buffers back to the HIF.
+Packet DMA is the only writer of received frames. It appends complete 802.11 frames, each prefixed by a 0x20-byte header and followed by a 4-byte-aligned trailer, into the RX FIFO ring and advances a producer offset. The firmware reads the producer, claims slots, and advances the consumer as slots become reusable. A slot whose payload is still being transferred to the host cannot yet be reused by packet DMA.
 
 ## Register map
 {:#s7-1}
@@ -25,10 +25,9 @@ Packet DMA is the only writer of received frames. It appends complete 802.11 fra
 
 ### CONTROL bitfield
 
-| Bit | Name | Meaning | Conf. |
-| --- | --- | --- | --- |
-| 0 | ENABLE | Packet DMA writes received frames into the RX FIFO. | Observed |
-| 23 | ACTIVE | Still moving a frame. Clears after ENABLE is dropped. A bounded poll of this bit is the documented stop sequence. | Observed |
+{% include registers/RxDmaControl.md %}
+
+To stop the engine the firmware clears `ENABLE` and polls `ACTIVE` with a timeout.
 
 ## FIFO slot layout
 {:#s7-2}
@@ -51,6 +50,4 @@ Offsets are logical: they wrap below `0x7000`, and the FIFO keeps `0x1000` bytes
 
 {% include registers/SlotHeader.md %}
 
-## DMA control field masks
-
-{% include registers/RxDmaControl.md %}
+The trailer is separate from the slot header; its rate and RCPI bytes follow the word-aligned frame, not the header’s length field.
