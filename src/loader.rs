@@ -10,10 +10,10 @@
 //! entering the main image.
 
 const PHY_INIT_TABLES: &[(usize, &[u8])] = &[
-    (0x0ab8_1000, include_bytes!("../data/phy-init-ab81000.bin")),
-    (0x0ab8_8400, include_bytes!("../data/phy-init-ab88400.bin")),
-    (0x0ab8_8800, include_bytes!("../data/phy-init-ab88800.bin")),
-    (0x0ab8_8c00, include_bytes!("../data/phy-init-ab88c00.bin")),
+    (0x0ab8_1000, &crate::init_data::PHY_INIT_AB81000),
+    (0x0ab8_8400, &crate::init_data::PHY_INIT_AB88400),
+    (0x0ab8_8800, &crate::init_data::PHY_INIT_AB88800),
+    (0x0ab8_8c00, &crate::init_data::PHY_INIT_AB88C00),
 ];
 
 const VENDOR_REGISTER_INITIALIZATION: &[(u32, u32)] = &[

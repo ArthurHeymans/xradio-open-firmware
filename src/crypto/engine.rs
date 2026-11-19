@@ -93,7 +93,7 @@ register_structs! {
 }
 
 #[cfg(target_arch = "arm")]
-const MODE1_INIT_PAYLOAD: &[u8; 430] = include_bytes!("../../data/engine-mode1-init.bin");
+use crate::init_data::ENGINE_MODE1_INIT as MODE1_INIT_PAYLOAD;
 
 /// A transfer gives up after 50 ms.
 #[cfg(target_arch = "arm")]

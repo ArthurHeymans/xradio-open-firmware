@@ -1,0 +1,11 @@
+[package]
+name = "xtask"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+anyhow = "1"
+object = { version = "0.37.3", default-features = false, features = ["read_core", "elf", "std"] }
+regex = "1"
+rustc-demangle = "0.1"

@@ -73,7 +73,7 @@ fn service_management_request(
 
 /// MIB 0x100c, the counters table, is the only readable MIB. A failed
 /// hardware CCMP self-test (word 1 not 1) answers in its place so the
-/// failure stays visible (`tools/decode-hardware-ccmp-selftest.py`).
+/// failure stays visible to the host.
 fn encode_read_mib(
     mib_id: u16,
     crypto: &crate::crypto::Crypto,

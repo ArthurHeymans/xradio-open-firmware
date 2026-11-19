@@ -1,18 +1,13 @@
 # XRadio open firmware
 
-This is a Rust replacement for the bootloader and Wi-Fi firmware on the XRadio XR819. It runs on the Orange Pi Zero’s XR819 and speaks the `cw1200` WSM protocol over SDIO. XR829 is planned but has no implementation yet.
-
-## Build for XR819
-
-You'll need Rust nightly with `rust-src`, Python 3, and the LLVM command-line tools. Bring the vendor `fw_xr819.bin` matching the [documented checksum](chips/xr819/data/README.md). The build extracts five initialization files from it.
+Rust firmware and bootloader for the Orange Pi Zero’s XR819. It speaks the `cw1200` WSM protocol over SDIO and supports WPA2-CCMP station and access point operation at 2.4 GHz. `xr819` is the default Cargo feature. XR829 is planned, not implemented.
 
 ```sh
 rustup component add rust-src --toolchain nightly
-cd chips/xr819
-python3 tools/extract-init-data.py /path/to/vendor/fw_xr819.bin
-tools/check.sh
-tools/build-sectioned-bootloader.sh /tmp/boot_xr819.bin
-tools/build-ota-image.sh /tmp/fw_xr819.bin
+cargo test --workspace
+cargo xtask image
 ```
 
-Keep your board's `sdd_xr819.bin`. Neither script produces it. The [XR819 notes](chips/xr819/README.md) cover driver requirements, limitations, and the register map.
+The image build needs `llvm-readobj` and `llvm-objdump` on `PATH` for the stack check. It writes `boot_xr819.bin` and `fw_xr819.bin` to `target/images/`. No vendor image is needed to build them. Keep your board’s original `sdd_xr819.bin` for calibration.
+
+[Driver and board tests](docs/orange-pi-zero-smoke.md) · [Register reference](docs/xr819-hardware-reference.html) · [Initialization data](docs/init-data.md)

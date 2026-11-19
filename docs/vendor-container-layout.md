@@ -10,12 +10,6 @@ size   0x1fe44 (130628)
 SHA256 3e2462d476c9dfcb907cda1ba81d0a6d1bbee5e3207bdc1911ec5042d96fdfca
 ```
 
-Parse it with:
-
-```sh
-python3 tools/inspect-vendor-container.py /tmp/fw_xr819.bin
-```
-
 The exact section stream is:
 
 | # | Kind | File header | File data | Destination | Length | Other |
@@ -69,7 +63,7 @@ optional high support  0xfff00000...
 ```
 
 Do not use `objcopy -O binary` for this address space: the holes between these
-regions are enormous. `tools/pack-sectioned-elf.py` converts the ELF program
+regions are enormous. [`cargo xtask image`](../xtask/src/image.rs) converts the ELF program
 headers into compact copy/fill records while retaining one build's linked
 addresses and entry point.
 

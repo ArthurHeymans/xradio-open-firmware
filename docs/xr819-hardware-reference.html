@@ -1344,12 +1344,12 @@ idle path
 
 <h2 id="appendix-c">Appendix C. Evidence index</h2>
 
-<p>Source paths below are relative to <code>chips/xr819/</code>. The annotated decompilation and two notebooks were in the original development tree and are not shipped here. Their function names are annotations, not vendor symbols.</p>
+<p>Source paths below are relative to the repository root. The annotated decompilation and two notebooks were in the original development tree and are not shipped here. Their function names are annotations, not vendor symbols.</p>
 <div class="scroll">
 <table>
 <thead><tr><th>Source</th><th class="a">Path</th><th>Used for</th></tr></thead>
 <tbody>
-<tr><td>Vendor container and section parser</td><td class="a mono">tools/inspect-vendor-container.py</td><td>Section stream, 41 MMIO pairs, four copies</td></tr>
+<tr><td>Vendor container layout</td><td><a href="vendor-container-layout.md">Section stream</a></td><td>Section stream, 41 MMIO pairs, four copies</td></tr>
 <tr><td>Annotated decompilation</td><td class="a mono">xr819-annotated-re-code.md</td><td>Function names, argument provenance, ordering claims</td></tr>
 <tr><td>Startup flow notebook</td><td class="a mono">xr819-hif-startup-flow.md</td><td>Top-level order, <code>0x9ac</code>/<code>0xf6</code> callees, activation, routing words</td></tr>
 <tr><td>AES interface note</td><td class="a mono">xr819-aes-engine.md</td><td>Command words, AAD streams, transfer classes</td></tr>
@@ -1361,7 +1361,7 @@ idle path
 <tr><td>Rust HIF module</td><td class="a mono">src/hif.rs</td><td>Descriptor format, ring depth, status bits, reclaim ordering</td></tr>
 <tr><td>Rust radio module</td><td class="a mono">src/radio.rs</td><td>FIFO slot header and trailer layout, resynchronization</td></tr>
 <tr><td>Rust TX pipes</td><td class="a mono">src/tx/pipe.rs, src/tx/event.rs</td><td>Ring layout, GO, event scheduler word</td></tr>
-<tr><td>CCMP setup and frame masking</td><td><a href="../chips/xr819/src/crypto/engine.rs">engine.rs</a>, <a href="../chips/xr819/src/crypto/mod.rs">mod.rs</a></td><td>Separate ports for initialization and key/context input; command order and AAD masks</td></tr>
+<tr><td>CCMP setup and frame masking</td><td><a href="../src/crypto/engine.rs">engine.rs</a>, <a href="../src/crypto/mod.rs">mod.rs</a></td><td>Separate ports for initialization and key/context input; command order and AAD masks</td></tr>
 <tr><td>Rust loader</td><td class="a mono">src/loader.rs</td><td>The 41 MMIO pairs verbatim</td></tr>
 </tbody>
 </table>

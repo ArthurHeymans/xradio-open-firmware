@@ -1,6 +1,5 @@
 //! The hardware engine's known-answer test, run once at startup. Its record
-//! answers MIB 0x100c in place of the counters if it failed
-//! (`tools/decode-hardware-ccmp-selftest.py` reads it).
+//! answers MIB 0x100c in place of the counters if it failed.
 
 use super::engine::{Engine, Transfer};
 use super::hardware_kat::{

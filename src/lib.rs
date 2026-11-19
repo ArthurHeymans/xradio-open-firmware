@@ -1,4 +1,5 @@
 #![no_std]
+#![cfg(feature = "xr819")]
 // Host builds compile the hardware-free half for tests; items only the ARM
 // firmware calls are dead there. The ARM build still reports real dead code.
 #![cfg_attr(not(target_arch = "arm"), allow(dead_code))]
@@ -6,6 +7,7 @@
 #[cfg(test)]
 extern crate std;
 
+mod init_data;
 pub mod activity;
 pub mod ap;
 pub(crate) mod backoff;
