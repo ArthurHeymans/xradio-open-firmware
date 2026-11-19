@@ -1,71 +1,42 @@
 ---
 title: Interrupt controller
-section: Hardware reference
+description: The XR819 interrupt controller at 0x0a88_0000, its sources, and how the firmware takes interrupts.
 ---
-# Interrupt controller
+A 32-source controller at `0x0a88_0000` with one IRQ and one FIQ output. Each source has one bit in the enable, pending and acknowledge registers; the [source table](#interrupt-sources-bits) below says who owns each one.
 
-The controller is a plain 32-source level/latched aggregator with one FIQ output. The vendor firmware enables individual sources as their owners come up, unmasks FIQ for the MAC event line only, and keeps CPU IRQ masked during startup.
-
-## Register map
-{:#s3-1}
+## Registers
 
 {% include registers/InterruptController.md %}
 
-- **CONTROL**: Controller enable. Vendor writes `1` at reset.
+### ACKNOWLEDGE, ENABLE, PENDING, RAW_STATE
 
-- **ACKNOWLEDGE**: Write one bits to clear the corresponding pending source. Writing the value read from `+0x20` is the normal acknowledge.
+Source 22 is drawn for completeness: it is routed to FIQ and never appears in these registers.
 
-- **VECTOR_BASE**: The firmware writes `(BASE as u32) << 9`. This is an encoded vector-base word, not a CPU address to dereference.
+{% include registers/InterruptSources.md %}
 
-- **ENABLE**: Bit *n* lets source *n* reach the CPU. The IRQ handler clears the bits of every pending source before acknowledging (mask-on-entry, re-arm by the owner).
+### CONFIGURATION
 
-- **CLEAR**: Written all-ones during reset, together with an all-ones acknowledge.
+{% include registers/InterruptConfiguration.md %}
 
-- **CONFIGURATION**: Vendor reset value `0x1600_a037`. The top byte selects the FIQ source: `0x16` (22 decimal) names the MAC event line.
+## The FIQ line
 
-- **PENDING**: Pending sources *among the enabled ones*. A disabled source never appears here, which makes this register useless for finding a masked cause.
+`CONFIGURATION` routes source 22, the MAC's event line, to the CPU's FIQ; see `MAC_FIQ` and `MAC_EVENTS` in the [source table](#interrupt-sources-bits). The firmware keeps FIQ masked and drains the MAC event FIFO from its main loop.
 
-- **RAW_STATE** (0x24, trace only): Raw source state before the enable mask. Required to see sources 9, 24 and 28, which stay asserted.
+## How the firmware takes interrupts
 
-## Source assignment
-{:#s3-2}
+The IRQ handler only takes note:
 
-| Source | Owner | Behaviour and handling | Conf. |
-| --- | --- | --- | --- |
-| 0 | Debug UART transmit | Level, pending whenever nothing is being sent. Any enabled wait-for-interrupt ends immediately. The vendor enables it only while printing; images that print nothing must leave it disabled. | Observed |
-| 2 | Debug UART receive | Vendor handler at `0xfff019e0`. Not enabled by the open firmware. | Observed |
-| 4 | Unassigned | The vendor registers a handler for it during `0x00000bb0`; its role was not recovered, so the source stays disabled. | Observed |
-| 6 | Timer 1 | One-shot expiry. Acknowledged by `platform::wait_for_event` after every sleep, and by the owner when a timer was armed for a deadline. | Observed |
-| 13 | HIF | Level. Cause bits live in HIF `+0x24` and are cleared by writing them to `+0x28`; the source is re-armed only after all causes are acknowledged. | Observed |
-| 18 | AES engine | Registered during post-activation interrupt setup. Vendor handler `enc_xfer_complete` (`0xea08`). | Observed |
-| 20 | AES engine | Second AES line; both are registered together. Direction-to-line mapping is not yet established. | Observed |
-| 21 | Unassigned | Vendor registers a handler in `0x00000b88`; purpose unknown. | Observed |
-| 26 | Packet DMA / TSF | Vendor IRQ 26 handler at `0x00007e3c` reads MAC `+0x0e34` and clears `0x1f00_0003`. Never observed pending in the open firmware, which never adjusts the TSF. | Inferred |
-| 27 | TX event error | Vendor calls `event_send_error_0x34`; disabled until that path is translated. | Observed |
-| 28 | MAC event FIFO | Raw bit 28 is set while the MAC event FIFO holds events. Acknowledging it stops RX within seconds, so it is left alone; the FIFO is drained from the main loop. | Inferred |
-| FIQ 0x16 | MAC event line | Asserted whenever the MAC has events. It ends a wait-for-interrupt even though it never appears in `+0x20` or `+0x24`; enabling source `0x16` as an IRQ changes nothing and the vendor does not do it. | Observed |
+```text
+pending = PENDING
+ENABLE &= ~pending        mask every pending source
+ACKNOWLEDGE = pending     clear it
+raised |= pending         record it for its owner
+```
 
-## Interrupt routing words (0x0abb_0010 to 0x0abb_0030)
-{:#s3-3}
+In the main loop each owner takes its bit from `raised`, clears the cause in its own device, and only then re-arms its source. A level source such as the HIF therefore cannot re-enter the handler before its owner has run, and a latched source such as the AES engine or timer 1 is not lost while its owner is busy. The handler never touches main-loop state.
 
-The vendor writes nine words immediately after subsystem initialization and before enabling interrupts. Values are exact from the instruction stream at `0x000164fa`.
+The handler runs in IRQ mode, entered from the firmware's own vector with IRQ and FIQ masked. A handler that unmasked FIQ would take it at once, because the MAC asserts the line whenever events wait.
 
-| Address | Value | Note |
-| --- | --- | --- |
-| 0x0abb_0010 | 0x000 | Replaying the whole group changed nothing measurable on hardware, so the semantics are unproven. |
-| 0x0abb_0014 | 0x3fd | Same caveat. |
-| 0x0abb_0018 | 0x3fa |  |
-| 0x0abb_001c | 0x3ff |  |
-| 0x0abb_0020 | 0x01b |  |
-| 0x0abb_0024 | 0x05b |  |
-| 0x0abb_0028 | 0x0b6 |  |
-| 0x0abb_002c | 0x10a |  |
-| 0x0abb_0030 | 0x12c |  |
+## Firmware reset sequence
 
-Two more words in the same window come from the container's loader table rather than from startup code: `0x0abb_0008 = 0x0000_026d` and `0x0abb_0078 = 0x0048_0035`.
-
-## Routing block layout
-
-The Rust routing declaration describes offsets, not proof of the purpose of each routing word.
-
-{% include registers/InterruptRouting.md %}
+The firmware resets the controller during platform preparation, in this order: `CONFIGURATION = 0x1600_a037`, `CLEAR_14 = 0xffff_ffff`, `ACKNOWLEDGE = 0xffff_ffff`, `VECTOR_BASE = 0x1000_0000` (the controller base shifted left by 9, truncated), `ENABLE = 0`, `CONTROL = 1`.

@@ -2,3 +2,4 @@
 /docs/_includes/registers/
 /_site/
 __pycache__/
+/docs/_data/registers.json

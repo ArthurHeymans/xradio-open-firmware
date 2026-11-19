@@ -1,53 +1,48 @@
 ---
-title: Receive DMA and FIFO
-section: Hardware reference
+title: Receive DMA
+description: The XR819 receive packet DMA, its registers and the RX FIFO slot format.
 ---
-# Receive DMA and FIFO
+Receive packet DMA is the only writer of received frames. It appends each frame to the RX FIFO in packet RAM, with a `0x20`-byte header in front and a receive-status trailer after it, and advances a producer offset. The firmware reads frames up to the producer and advances the consumer as it frees their slots. A slot whose frame is still on its way to the host cannot be reused.
 
-Packet DMA is the only writer of received frames. It appends complete 802.11 frames, each prefixed by a 0x20-byte header and followed by a 4-byte-aligned trailer, into the RX FIFO ring and advances a producer offset. The firmware reads the producer, claims slots, and advances the consumer as slots become reusable. A slot whose payload is still being transferred to the host cannot yet be reused by packet DMA.
+## Registers
 
-## Register map
-{:#s7-1}
+The block sits inside the MAC window, at `+0x0600`. Two slot-timing words, `SLOT_TIMING_614` and `SLOT_TIMING_618`, fall inside its range but are not part of this layout; see [MAC](mac.html#packet-dma-and-rate-ram).
 
 {% include registers/RxDma.md %}
 
-- **CONTROL**: Bit 0 ENABLE, bit 23 ACTIVE. Startup value `0x0102_0418`. ACTIVE stays set until a frame in flight completes after ENABLE is dropped.
-
-- **PRODUCER**: FIFO offset just past the newest frame written.
-
-- **CONSUMER**: FIFO offset up to which firmware has released frames. Writing this is the release.
-
-- **CONFIGURATION_0C**: `0x80`. Written *before* CONTROL during initialization.
-
-- **CONFIGURATION_1C**: `7`.
-
-- **CONFIGURATION_20**: `0x3000_0000`.
-
-### CONTROL bitfield
+### CONTROL
 
 {% include registers/RxDmaControl.md %}
 
-To stop the engine the firmware clears `ENABLE` and polls `ACTIVE` with a timeout.
+## FIFO slots
 
-## FIFO slot layout
-{:#s7-2}
-
-Every slot starts with a 0x20-byte header. The frame follows immediately and is padded up to the next word boundary; the trailer follows at that word boundary.
-
-| Offset | Field | Description | Conf. |
-| --- | --- | --- | --- |
-| 0x00 | MAGIC | `0x00aa_55ff` in a valid slot. A slot past the producer holds arbitrary data and must be validated by magic and length. | Observed |
-| 0x04 | NEXT | Offset of the next slot. A slot whose next pointer is not the producer still has data behind it. | Observed |
-| 0x08 | STATE | Release state word; firmware writes `0xcccc_cc00` when it hands a slot back. | Observed |
-| 0x14 | RX_TSF | Low word of the MAC TSF when the frame began. Measured on beacons: the value is the beacon's airtime before processing. | Observed |
-| 0x18 | LENGTH | Frame length in octets *including* FCS. | Observed |
-| 0x20 | FRAME | The 802.11 frame itself. | Observed |
-| 0x20 + align4(len) | TRAILER | Receive status. `+0x06` = rate index, `+0x07` = RCPI. | Observed |
-
-Offsets are logical: they wrap below `0x7000`, and the FIFO keeps `0x1000` bytes of linear spill so that a slot starting near the top of the ring remains addressable. CPU access is always `rx_fifo_base + (offset % 0x7000)`. The WSM message ceiling is `0x1ffe` bytes. Subtract 16 bytes of host headroom for the frame limit (8174 bytes); the RX slot length may include another four FCS bytes (8178). The available bytes and physical storage must also cover the slot.
-
-## FIFO header layout
+Every slot starts with a `0x20`-byte header. The frame follows it directly and is padded to a word boundary; the receive trailer follows the padding.
 
 {% include registers/SlotHeader.md %}
 
-The trailer is separate from the slot header; its rate and RCPI bytes follow the word-aligned frame, not the header’s length field.
+| Offset | Contents |
+|---|---|
+| `0x00` | Slot header, above |
+| `0x20` | The 802.11 frame, `LENGTH` octets including the FCS |
+| `0x20 + align4(LENGTH)` | Receive trailer: rate index at `+0x06`, RCPI at `+0x07` |
+{: .compact}
+
+`RX_TSF` was measured on beacons: it holds the TSF at the start of the frame, so a beacon's own timestamp is later by its airtime.
+
+## Offsets and wrap-around
+
+FIFO offsets are logical and wrap below `0x7000`. The storage is `0x8000` bytes: the extra `0x1000` let a slot that starts near the top of the ring continue linearly instead of wrapping. The CPU address of a slot is `0x0940_0000 + (offset % 0x7000)`.
+
+Data beyond the producer is arbitrary. [Receiving a frame](rx.html#claiming-a-slot) says how the firmware decides that a slot is valid and recovers from one that is not.
+
+## Size limits
+
+| Limit | Bytes |
+|---|---:|
+| WSM message | `0x1ffe` (8190) |
+| Frame, after 16 bytes of host headroom | 8174 |
+| Slot length field, including the FCS | 8178 |
+
+A slot must also fit in the bytes available and in the physical storage.
+
+[Receiving a frame](rx.html) follows a frame from the FIFO to the host.

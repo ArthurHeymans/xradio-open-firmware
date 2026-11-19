@@ -1,11 +1,19 @@
 ---
-layout: default
-title: Hardware reference moved
+layout: null
+sitemap: false
 ---
-<h1>The register manual has moved</h1>
-<p><a href="reference/index.html">Open the address map</a> or choose the block from the navigation. Old section links redirect to the corresponding page.</p>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Moved · {{ site.title }}</title>
+<meta name="robots" content="noindex">
+<noscript><meta http-equiv="refresh" content="0; url={{ '/reference/' | relative_url }}"></noscript>
 <script>
 const destinations = {{ site.data.legacy | jsonify }};
 const key = location.hash.slice(1);
-location.replace(Object.prototype.hasOwnProperty.call(destinations, key) ? destinations[key] : 'reference/index.html');
+location.replace(Object.prototype.hasOwnProperty.call(destinations, key) ? destinations[key] : 'reference/');
 </script>
+</head>
+<body><p>The register manual moved to the <a href="{{ '/reference/' | relative_url }}">hardware reference</a>.</p></body>
+</html>

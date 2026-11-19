@@ -1,18 +1,25 @@
 ---
-title: Packet-RAM address encodings
-section: Hardware reference
+title: Packet RAM addressing
+description: The encodings the XR819 engines use for the same packet SRAM, and the rules for converting between them.
 ---
-# Packet-RAM address encodings
+The same packet SRAM byte has several representations, one per hardware user. They are not interchangeable, and mixing them corrupts memory silently instead of faulting.
 
-The same storage has several hardware representations. They are not interchangeable, and mixing them produces silent corruption rather than a fault.
+## Address classes
 
-| Class | Shape | Valid use |
-| --- | --- | --- |
-| CPU runtime address | 0x0900_7000..0x0901_6630 | CPU loads/stores and software ownership records |
-| CPU RX FIFO address | 0x0940_0000..0x0940_8000 | CPU access to FIFO slots after bounded offset normalisation |
-| MAC 23-bit offset | cpu & 0x007f_ffff | MAC registers and command-word operands |
-| DMA/HIF bus address | cpu & 0xf6ff_ffff | HIF, AES/MIC and packet-DMA descriptors |
-| A-MPDU transfer | 0x6500_0000 \| (cpu & 0x001f_fffc) | MAC command streams only |
-| RX FIFO logical offset | offset < 0x7000 | Producer/consumer accounting only |
+| Class | Form | Used for |
+|---|---|---|
+| CPU address, runtime pool | `0x0900_7000`–`0x0901_662f` | CPU loads and stores, software ownership records |
+| CPU address, RX FIFO | `0x0940_0000`–`0x0940_7fff` | CPU access to FIFO slots |
+| MAC packet offset | `cpu & 0x007f_ffff` | MAC registers and command-word operands |
+| DMA bus address | `cpu & 0xf6ff_ffff` | HIF descriptors, AES source and destination, packet DMA |
+| A-MPDU transfer word | <code>0x6500_0000 &#124; (cpu &amp; 0x001f_fffc)</code> | MAC command streams only |
+| RX FIFO offset | below `0x7000` | Producer and consumer registers |
 
-A bus encoding is never a CPU pointer. Decoding a hardware word by OR-ing a CPU base, or using the masked value directly as a pointer, is invalid unless an independently owned CPU-form identity proves the target object. In the open firmware, production `0x007f_ffff` and `0xf6ff_ffff` masks exist only inside the packet-RAM module; every caller supplies a linker-owned root or an object base.
+For example, the HIF input buffers at CPU address `0x0900_800c` appear as MAC offset `0x0000_800c` and bus address `0x0000_800c`, and an aggregate member there is transferred with the word `0x6500_800c`. A FIFO slot at offset `0x0120` is read by the CPU at `0x0940_0120`.
+
+## Conversion rules
+
+- **Encode only from a CPU address.** Every hardware form is derived from a CPU address that belongs to a known object.
+- **Never decode.** A hardware word is not a CPU pointer, and OR-ing a base back into it does not make one. The firmware recovers the CPU address from its own records instead: the HIF queue entry, the TX pipe registry or the A-MPDU software record.
+- **Check the whole range.** An address is valid only if the complete access, not just its first byte, lies in one object.
+- **Wrap FIFO offsets, not slots;** see [Receive DMA](rx-dma.html#offsets-and-wrap-around).

@@ -1,18 +1,23 @@
 ---
-title: XR819 firmware manual
+title: XR819 open firmware
+nav_title: Overview
+description: Rust firmware for the XRadio XR819 Wi-Fi chip, and a reference manual for its hardware.
 ---
-# XR819 firmware manual
+Open firmware for the XRadio XR819 Wi-Fi chip, written in Rust, and a reference manual for the hardware it drives.
 
-The XR819 runs the radio on an Orange Pi Zero. Linux talks to it over SDIO; the firmware on the chip manages packet memory, queues transmissions, and handles the MAC and PHY.
+The XR819 is the 2.4 GHz 802.11b/g/n radio on boards such as the Orange Pi Zero. A patched version of Linux's `cw1200` driver talks to it over SDIO. This firmware runs on the chip's ARM966E-S core in place of the vendor image: it owns packet memory, queues frames for the MAC, runs CCMP through the AES engine and drives the PHY.
 
-## [Use the firmware](linux-driver.html)
+<ul class="cards">
+<li><a href="linux-driver.html"><strong>Build and install</strong><span>Build the two images, use the patched <code>cw1200</code> driver and keep your board's calibration file.</span></a></li>
+<li><a href="reference/"><strong>Hardware reference</strong><span>Memory map, register blocks with bit layouts, descriptor formats and host messages.</span></a></li>
+<li><a href="reference/flows.html"><strong>Operation</strong><span>Boot, bring-up, receive, transmit, encryption and sleep, step by step.</span></a></li>
+<li><a href="orange-pi-zero-smoke.html"><strong>Lab notes</strong><span>Board test reports, then measurements and open questions.</span></a></li>
+</ul>
 
-Build the bootloader and runtime, find the Linux driver, and keep the calibration file that belongs to your board.
+## Status
 
-## [Hardware reference](reference/index.html)
+On an Orange Pi Zero with the patched driver, the firmware associates as a WPA2-PSK station, runs as a WPA2 access point, and survives repeated driver unbind and bind. In the November 2026 retest the first association after a rebind needed a retry, and the kernel logged one failed AP start confirmation. These are connectivity tests, not throughput or endurance qualification; the [board test reports](orange-pi-zero-smoke.html) list the exact kernel and firmware revisions. Only SDIO has run on hardware.
 
-Start from a CPU address, or follow a packet through the [host interface](reference/hif.html), [transmit rings](reference/rings.html), and [radio](reference/phy.html). Register layouts come from Rust; the [reading guide](reference/guide.html) distinguishes those layouts from measurements and inferred behavior.
+## About this manual
 
-## [Lab notes](lab.html)
-
-Look up the driver and image used in a board run, compare an observation with the reference, or find a question that still needs a measurement.
+Tables and bit diagrams of the typed register blocks are generated from the firmware's Rust declarations, so they always match the code that runs; the sparse MAC and PHY windows are maintained by hand from the code. Everything else states how it was established; [Reading this reference](reference/guide.html) explains the conventions, the [register index](reference/registers.html) finds any named register by name or address, and the search box, or <kbd>/</kbd>, searches every page.

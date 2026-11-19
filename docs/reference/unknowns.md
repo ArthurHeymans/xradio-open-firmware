@@ -1,23 +1,20 @@
 ---
-title: Open hardware questions
-section: Hardware reference
+title: Open questions
+description: What is not yet known about the XR819 hardware, and the test that would settle each question.
 ---
-# Open hardware questions
+Each question below names the experiment that would settle it. Contributions of measurements are welcome; see [Editing this manual](../contributing-docs.html).
 
-| Item | Status | Test that would settle it |
-| --- | --- | --- |
-| AES direction-to-IRQ mapping (18 vs 20) | HYPOTHESIS both registered, direction unassigned | Single TX-only and RX-only transfers with one line masked |
-| IRQ 4 and 21 handlers | HYPOTHESIS role unknown, left disabled | Trace the vendor callbacks' first register access |
-| IRQ 26 role | INFERRED TSF adjustment | Force a TSF sync (beacon TIM) and watch `0x0e34` |
-| Routing words 0x0abb_0010..30 | HYPOTHESIS replay is harmless but purposeless | Vary one word and measure interrupt latency per source |
-| PHY register semantics | HYPOTHESIS opaque address/value pairs | Per-register ablation against a calibrated throughput baseline |
-| Command-word opcode classes not in 9.3 | HYPOTHESIS | Descriptor ISA audit against vendor `txp_desc_emit` |
-| Prefetch/fetch state at `0x0e8c` | INFERRED must be written only while quiescent | Cycle it under a running fetch engine and count malformed frames |
-| First A-MPDU member loss | INFERRED not controllable from software | External attenuator or an in-channel interferer |
-| Absent frames after successful publication (14) | Open blocker | Compare descriptor words and pipe state against vendor immediately before GO |
-
-**Erratum 1: do not re-write the TX ring while the MAC is live.** Writing `ring+0x14` (GO) and cycling `0x0e8c` during operation leaves the final values correct and corrupts fetch behaviour. The vendor programs these exactly once, before MAC core enable.
-
-**Erratum 2: TSF control is edge-sensitive in practice.** Write `0x0e34 = 0` and then `3`. A single write of 3 was the first deviation found in the vendor comparison and remains a suspected cause of rare TSF/event anomalies.
-
-**Erratum 3: the scan filter value excludes compressed BlockAck frames.** The synthetic-scan mode word uses `0x0204 = 0x0019_8000`, which drops received compressed BlockAcks from packet DMA even when the AP sends them and TX status completes. A joined station must use `0x0279_fe00`.
+| Question | Current state | Test that would settle it |
+|---|---|---|
+| Which AES line, IRQ 18 or 20, signals which direction? | Both are registered; which carries which direction is not known | Single TX-only and RX-only transfers with one line masked |
+| What do the IRQ 4 and IRQ 21 handlers do? | Unknown; both left disabled | Trace the vendor callbacks' first register access |
+| Is IRQ 26 the TSF adjustment? | <span class="tag inferred">inferred</span> | Force a TSF sync from a beacon and watch `TSF_CONTROL` |
+| What do the routing words at `0x0abb_0010`–`0x0abb_0030` do? | Replaying them changed nothing measurable; their meaning is unknown | Vary one word at a time and measure per-source interrupt latency |
+| What do the PHY register writes mean? | Opaque address/value pairs | Per-register ablation against a calibrated throughput baseline |
+| Which command-descriptor opcodes exist beyond the [known ones](rings.html#opcodes)? | The table lists only the opcodes seen in the firmware's descriptors | Audit against the vendor descriptor emitter `txp_desc_emit` |
+| What does [`COMMAND_FETCH`](mac.html#mac-command-fetch) control, and does a full 0 → `0xbf` cycle disturb a running engine? | Command fetch, or for bits 5:2 reception <span class="tag hypothesis">hypothesis</span> | Cycle it under a running fetch engine and count malformed frames |
+| Can the first A-MPDU member's loss be controlled? | Not from software <span class="tag inferred">inferred</span> | An external attenuator or an in-channel interferer |
+| Who clears HIF `STARTUP_STATUS` bit 10? | Unknown | Trace the host's SDIO register writes during probe |
+| Why does sleeping between frames lose frames with the "minimal" host driver only? | Unknown; avoided by the current sleep policy | Compare the two drivers' SDIO traffic around a lost frame |
+| Why does the `START_REQ` confirmation fail after a rebind? | The kernel logged a failed confirmation for `START_REQ` (`0x0017`) in the [rebind retest](../orange-pi-zero-smoke.html#2026-11-19-rebind-and-wpa2-retest), although the access point then worked | Repeat AP start after a rebind with WSM tracing and compare the confirmation status with a cold boot |
+| What are the 430 AES initialization bytes? | Unknown format; needed or not is unknown | Run CCMP without streaming them |

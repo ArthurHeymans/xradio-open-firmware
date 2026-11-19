@@ -1,69 +1,65 @@
 ---
-title: AES and CCMP
-section: Hardware reference
+title: AES/CCMP engine
+description: The XR819 AES engine at 0x09c5_0000, its command words, AAD format and transfer classes.
 ---
-# AES and CCMP
+The AES engine at `0x09c5_0000` performs CCMP. Keys, the CCM context and the additional authenticated data (AAD) go through a FIFO; the frame payload moves through packet RAM by DMA. The engine handles one transfer at a time.
 
-The CCMP engine takes keys and authenticated header data through a FIFO. It moves the frame payload through packet RAM by DMA. The initialization port is a different register.
-
-For each transfer the firmware stages words in the FIFO, issues commands through the command/status register, and gives the engine a DMA address and payload length. It need not reload an unchanged key.
-
-## Register map
-{:#s10-1}
+## Registers
 
 {% include registers/AesRegisters.md %}
 
-- **COMMAND_STATUS**: Write a command word; read status. Bit 13 FIFO ready, bit 12 busy/command not accepted, bit 0 authenticated result (sampled after the completion IRQ for decryption).
+### COMMAND_STATUS
 
-- **FIFO**: 32-bit writes supply little-endian key, CCM context and AAD words. The initialization stream goes to +0x08, not here.
-
-- **MODE1_INIT**: The engine initializer writes 430 bytes here, one per 32-bit write, with bit 31 set on the first. It then writes 0x9000 to +0x00. The vendor transfer dispatcher can select this routine. The bytes’ encoding and whether the engine needs them are unknown.
-
-- **SOURCE**: DMA source, encoded `cpu & 0xf6ff_ffff`.
-
-- **DESTINATION**: DMA destination, same encoding.
-
-- **LENGTH**: Payload length in octets, excluding CCMP header and MIC.
+{% include registers/AesStatus.md %}
 
 ## Command words
-{:#s10-2}
 
-| Command | Stage | Notes | Conf. |
-| --- | --- | --- | --- |
-| 0x1100 | Key load | After four FIFO words holding the 16 key bytes little-endian. Bytes are not reversed relative to their WSM representation. | Observed |
-| 0x1240 | CCM context | After one 16-byte FIFO block: `[0]=1`, `[1]=`TID, `[2..8]=`A2, `[8..14]=`PN5..PN0, `[14..16]=`payload length big-endian. | Observed |
-| 0x1403 / 0x1402 | AAD first block | Transmit / receive respectively. | Observed |
-| 0x148b / 0x148a | AAD tail, 22 bytes | 3-address non-QoS, TX / RX. | Observed |
-| 0x14ab / 0x14aa | AAD tail, 24 bytes | 3-address QoS, TX / RX. | Observed |
-| 0x14eb / 0x14ea | AAD tail, 28 bytes | 4-address non-QoS, TX / RX. | Observed |
-| 0x140b / 0x140a | AAD tail, 30 bytes | 4-address QoS, TX / RX. | Observed |
-| 0x3008_1009 | Start, encrypt | Payload length already in `+0x18`; encrypts in place when source = destination. | Observed |
-| 0x3008_1008 | Start, decrypt | Supports the vendor overlap: `src = frame + hdr + 8`, `dst = frame + hdr`, which decrypts while removing the CCMP header. | Observed |
+Each stage writes its input words to `FIFO`, then a command to `COMMAND_STATUS`. An unchanged key need not be reloaded.
 
-### AAD stream shape
+| Command | Stage | FIFO input |
+|---|---|---|
+| `0x1100` | Load key | Four words: the 16 key bytes, little-endian, in their WSM order |
+| `0x1240` | CCM context | One 16-byte block: `[0] = 1`, `[1]` = TID, `[2..8]` = A2, `[8..14]` = PN5…PN0, `[14..16]` = payload length, big-endian |
+| `0x1403` / `0x1402` | First AAD block | The first 16 bytes of the AAD stream; transmit / receive |
+| `0x148b` / `0x148a` | AAD tail, 22-byte AAD | Three addresses, no QoS; TX / RX |
+| `0x14ab` / `0x14aa` | AAD tail, 24-byte AAD | Three addresses, QoS; TX / RX |
+| `0x14eb` / `0x14ea` | AAD tail, 28-byte AAD | Four addresses, no QoS; TX / RX |
+| `0x140b` / `0x140a` | AAD tail, 30-byte AAD | Four addresses, QoS; TX / RX |
+| `0x3008_1009` | Start encryption | Length already in `LENGTH`; encrypts in place when source and destination are equal |
+| `0x3008_1008` | Start decryption | The firmware decrypts in place, with source equal to destination |
+| `0x9000` | Initialize | After the 430-byte stream through `INIT_PORT` |
 
+Every receive command is the transmit command minus one.
+
+## AAD
+
+The AAD is sent as a 32-byte stream: a 2-byte big-endian length, then masked frame control, A1, A2, A3, masked sequence control, [A4] and [QoS control], padded with zeros.
+
+```text
+FIFO  bytes 0..15 of the stream
+      command 0x1403 (TX) / 0x1402 (RX)
+FIFO  bytes 16..31 of the stream
+      the AAD tail command for the header shape
+      ... source, destination, length, then the start command
 ```
-FIFO word 0 : big-endian AAD length, then AAD bytes
-AAD         : masked frame control (below), A1, A2, A3,
-              masked sequence control,
-              [A4], [QoS control]
-then        : one of the tail commands above
-then        : DMA start command
-```
 
-The Rust encoder clears Retry, Power Management and More Data; it also masks subtype bits 4–6 for non-management frames and bit 15 for QoS data. It sets the Protected bit in the AAD for both management and data frames.
+The tail commands' 22, 24, 28 and 30 bytes are the total AAD length for each header shape.
 
-## Transfer class table
-{:#s10-3}
+In the frame control the firmware clears Retry, Power Management and More Data; for non-management frames it also clears subtype bits 4–6, and for QoS data the Order bit, bit 15. It sets the Protected bit for management and data frames. In the sequence control it keeps the fragment number and clears the sequence number.
 
-The vendor keeps a transfer-class table in DTCM at `0x0400_0804`. The classes relevant to ordinary data CCMP:
+## Completion
 
-| Class | Flags | Operation |
-| --- | --- | --- |
-| 6 | 0x84 | CCMP transmit encryption |
-| 7 | 0x80 | CCMP receive decryption |
-| 8, 9, 10 | - | Protected-management / BIP stages, not ordinary data CCMP |
+Completion arrives on IRQ 18 or IRQ 20. For a decryption, `AUTH_OK` then reports the MIC check. The engine runs one transfer at a time, and the firmware queues the rest.
 
-Completion is signalled on IRQ 18 and IRQ 20. The vendor handler clears the global owner, checks status bit 0 for classes 6 through 9, moves the descriptor to a deferred-completion list, starts the next queued operation, and runs callbacks outside interrupt context. The engine is globally serialized: one transfer at a time, key and AAD storage retained until completion, and a bounded FIFO/command wait (50 ms in the open firmware) that is fatal until an engine reset sequence is known.
+## Start-up self-test
 
-[Follow a CCMP transfer →](ccmp.html) · [Origin of the initialization payload](../init-data.html)
+Right after the host handshake the firmware initializes the engine and checks it:
+
+1. Write `COMMAND_STATUS = 0` and wait for `BUSY` to clear.
+2. Stream 430 vendor bytes to `INIT_PORT`, one byte per 32-bit write, with bit 31 set on the first.
+3. Write `COMMAND_STATUS = 0x9000` and wait for `BUSY` to clear.
+4. Run a fixed frame through CCMP in HIF output buffer 0 and compare the result with one computed at build time.
+
+The result word is 1 on success, or `0xe0xx` naming the failed step. The format of the 430 bytes, and whether the engine needs them, are unknown; [Vendor initialization data](../init-data.html) records their origin.
+
+[CCMP encryption](ccmp.html) gives the transfer sequence step by step.

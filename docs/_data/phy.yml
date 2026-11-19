@@ -1,0 +1,24 @@
+# yamllint disable rule:line-length
+# Hand-maintained PHY-window registers, rendered on reference/phy.md and
+# listed in the register index. Same fields as mac.yml, with full addresses.
+- section: calibration
+  rows:
+    - {address: "0x0abb_8004", name: CAL_ENABLE, use: RW, text: "Bits `0x0004_8000` set enable the calibration engine; cleared disable it"}
+    - {address: "0x0abb_805c", name: "CAL_CONTEXT[0..2]", count: 3, use: RW, tag: inferred, text: "Three words up to `0x0abb_8064`, restored around band selection"}
+    - {address: "0x0abb_80f0", name: CAL_COMMAND, use: RW, bits: calibration-command-bits, text: "Mode command `0x0100_4008 + mode`; sample command `0x0800_000d`. Bit 4 reads set when the measurement has completed."}
+    - {address: "0x0abb_80f4", name: CAL_TIMING, use: W, text: "`0x0020_0078` for modes 2 and 3, `0x0020_0190` otherwise"}
+    - {address: "0x0abb_80f8", name: CAL_TIMING_2, use: W, text: "`0x012c_00c8`; function unknown"}
+    - {address: "0x0abb_810c", name: CAL_ACCUM_I, use: R, text: "I accumulator, decoded as the measured coefficient"}
+    - {address: "0x0abb_8110", name: CAL_ACCUM_Q, use: R, text: "Q accumulator"}
+    - {address: "0x0abb_8114", name: CAL_SAMPLE, use: W, bits: calibration-sample-bits, text: "Sample settings: I and Q"}
+    - {address: "0x0abb_81a4", name: CAL_GAIN, use: RW, bits: calibration-gain-bits, text: "Calibration gain"}
+- section: shared
+  rows:
+    - {address: "0x0ab9_8040", name: PHY_DMA_8040, use: W, text: "Cleared at packet-DMA start-up, before packet DMA is enabled; function unknown"}
+    - {address: "0x0ab8_0c50", name: PHY_SIDEBAND, use: R, tag: inferred, text: "Read once for each MAC event that marks a received frame; the read may acknowledge the capture. The value is not used."}
+- section: pll
+  rows:
+    - {address: "0x0abc_0050", name: RF_BAND_0050, use: RW, text: "Bit 9 cleared and set again after the PLL restarts; function unknown"}
+    - {address: "0x0abc_0084", name: RF_MODE_0084, use: RW, text: "Bit 6 cleared and set again after the PLL restarts; function unknown"}
+    - {address: "0x0abc_00b4", name: PLL_VALUE, use: W, bits: pll-value-bits, text: "Channel divider"}
+    - {address: "0x0abc_00b8", name: PLL_CONTROL, use: RW, bits: pll-control-bits, text: "PLL restart"}

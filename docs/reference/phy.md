@@ -1,53 +1,83 @@
 ---
 title: PHY and RF
-section: Hardware reference
+description: The XR819 PHY and RF window at 0x0ab8_0000, the loader-applied tables and the calibration engine.
 ---
-# PHY and RF
+The PHY and RF blocks occupy a `0x6_0000`-byte window at `0x0ab8_0000`. The vendor programs most of it with absolute address/value sequences whose meaning cannot be recovered from the image, so this page covers what is known: the tables the loader applies before the runtime starts, the calibration engine, and a few words shared with packet DMA.
 
-The loader writes four tables before the runtime takes over. We know their destinations and the order of the register writes, not every RF field’s purpose.
+## Loader tables
 
-The PHY and RF blocks occupy a 0x60000 window. Most of their register semantics are unknown: the vendor programs them with absolute-address/value sequences whose meaning is not recoverable from the image alone. Three categories are documented here: the loader-applied tables (which the Rust bootloader currently writes), the calibration engine, and the packet-DMA-adjacent words that firmware does read.
+The bootloader, not the runtime, initializes the PHY. Before jumping to the runtime it applies 41 ordered register writes and copies four tables into PHY memory. A downloader that skips them starts the runtime with an uninitialized PHY, and the result looks like MAC or calibration bugs.
 
-## Loader-applied PHY tables
-{:#s11-1}
+| Destination | Length | Contents |
+|---|---:|---|
+| Register writes | 41 pairs | [Below](#register-writes), in order |
+| `0x0ab8_1000` | `0x400` | PHY table `PHY_INIT_AB81000` |
+| `0x0ab8_8400` | `0x330` | PHY table `PHY_INIT_AB88400` |
+| `0x0ab8_8800` | `0x330` | PHY table `PHY_INIT_AB88800` |
+| `0x0ab8_8c00` | `0x330` | PHY table `PHY_INIT_AB88C00` |
 
-Section type 2 of the vendor container is not consumed by firmware. The download bootloader applies 41 address/value pairs directly before jumping to the low image, and four type-0 copies land in MAC/PHY memory. A custom downloader that skips them starts from an uninitialised PHY.
+The tables are copied as little-endian words after the register writes. They are not the board's SDD calibration file. [Vendor initialization data](../init-data.html) gives their origin and checksums.
 
-| Section | Destination | Length | Contents |
-| --- | --- | --- | --- |
-| type 2 (MMIO) | address/value pairs | 0x148 | [Ordered register writes](#s11-2) |
-| type 0 copy | 0x0ab8_1000 | 0x400 | MAC/PHY table |
-| type 0 copy | 0x0ab8_8400 | 0x330 | MAC/PHY table |
-| type 0 copy | 0x0ab8_8800 | 0x330 | MAC/PHY table |
-| type 0 copy | 0x0ab8_8c00 | 0x330 | MAC/PHY table |
+### Register writes
 
-## Loader MMIO table (41 pairs, in order)
-{:#s11-2}
+In write order. The last two land in the [interrupt routing](vendor.html#interrupt-routing-words) window.
+
+<details markdown="1">
+<summary>Show the 41 writes</summary>
 
 {% include registers/LoaderWrites.md %}
 
-## Calibration engine (0x0abb_80xx)
-{:#s11-3}
+</details>
 
-The calibration block is a command/result unit embedded in the PHY window. Firmware triggers a measurement, waits for a busy bit to clear, and reads two accumulators.
+## Calibration engine
 
-| Address | Role | Conf. |
-| --- | --- | --- |
-| 0x0abb_8004 | Calibration enable. Bit `0x0004_8000` set enables the engine, cleared disables it. | Observed |
-| 0x0abb_805c..0x0abb_8064 | Three context words restored around band selection. | Inferred |
-| 0x0abb_80c0 | Register-base value the vendor carries as the fourth argument through band select and IQ DAC setup. | Observed |
-| 0x0abb_80f0 | Command register. Bit 4 reads set when the measurement completed. Mode command `0x0100_4008 + mode`; sample command `0x0800_000d`. | Observed |
-| 0x0abb_80f4 | Timing: `0x0020_0078` for modes 2/3, `0x0020_0190` otherwise. | Observed |
-| 0x0abb_80f8 | `0x012c_00c8`. | Observed |
-| 0x0abb_810c / 0x0abb_8110 | I and Q accumulators, decoded as the measured coefficient pair. | Observed |
-| 0x0abb_8114 | Sample settings word: I in bits 8:0, Q in bits 24:16, plus `0x0100_0100`. | Observed |
-| 0x0abb_81a4 | Calibration gain: `0x40 \| gain` for non-negative gain, `0` otherwise. | Observed |
+A command/result unit inside the PHY window at `0x0abb_8000`. The firmware selects a mode, writes the I and Q settings, triggers a measurement, waits for completion and reads two accumulators.
 
-## Words shared with the packet-DMA path
-{:#s11-4}
+{% include register-rows.html data=site.data.phy prefix="phy" section="calibration" %}
 
-| Address | Observed use | Conf. |
-| --- | --- | --- |
-| 0x0ab9_8040 | Cleared during `prepare_packet_dma()`, before packet DMA is enabled. | Observed |
-| 0x0ab8_0c50 | Read once per MAC event that carries the sideband marker; the read may be what acknowledges the capture. Value is not consumed otherwise. | Inferred |
-| 0x0abb_0010..0x0abb_0030 | Interrupt routing words, [Interrupt controller](interrupts.html#s3-3). | Observed |
+### CAL_COMMAND
+
+{% include registers/CalibrationCommand.md %}
+
+### CAL_SAMPLE
+
+{% include registers/CalibrationSample.md %}
+
+### CAL_GAIN
+
+{% include registers/CalibrationGain.md %}
+
+## Channel PLL
+
+The radio is tuned by a fractional-N PLL. For channel *c* the carrier is 2407 + 5*c* MHz, or 2484 MHz for channel 14, and the divider is
+
+```text
+ratio      = f_kHz × 1250 / (f_ref_kHz × 1000)
+integer    = floor(ratio)
+fraction   = floor((ratio − integer) × 2^21)
+PLL_VALUE  = integer << 21 | fraction
+```
+
+The reference is 26 MHz unless the SDD file's element `0xc5` gives another. The factor 1.25 comes from the vendor arithmetic; what it corresponds to in the synthesizer is not established. For channel 6, 2437 MHz: integer 117, fraction `0x5_3b13`, `PLL_VALUE` = `0x0ea5_3b13`.
+
+To retune, follow these steps. Delays are in spin-delay units: one unit is 34 iterations of a busy loop, of unmeasured duration.
+
+1. Write `PLL_VALUE`.
+2. Clear `PLL_CONTROL.RESTART`, delay 1, set it again, delay 120.
+3. In the 2.4 GHz mode only: clear bit 6 of `RF_MODE_0084` and bit 9 of `RF_BAND_0050`, delay 10, set both again, delay 10.
+
+The 120 µs settle in [Retuning to a channel](sequences.html#retuning-to-a-channel) is separate: it follows calibration and gain programming.
+
+{% include register-rows.html data=site.data.phy prefix="phy" section="pll" %}
+
+### PLL_VALUE
+
+{% include registers/PllValue.md %}
+
+### PLL_CONTROL
+
+{% include registers/PllControl.md %}
+
+## Words shared with packet DMA
+
+{% include register-rows.html data=site.data.phy prefix="phy" section="shared" %}

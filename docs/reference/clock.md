@@ -1,33 +1,26 @@
 ---
 title: Clock and reset
-section: Hardware reference
+description: The XR819 clock and reset block at 0x0aa8_0000, its remap windows and clock masks.
 ---
-# Clock and reset
+The block at `0x0aa8_0000` holds the eight memory remap windows, three clock mask words and a one-time control write that changes the packet-RAM mapping.
 
-## Clock / reset block (0x0aa8_0000)
-{:#s5-1}
+## Registers
 
 {% include registers/ClockReset.md %}
 
-- **CONTROL_04**: Written `0x200` once, in `0x00000bb0`. After this write the `0x0900ff98` packet-RAM alias disappears on some images; that is a mapping effect, not a CPU stop.
+### WINDOW_SELECTOR
 
-- **WINDOW_SELECTOR**: Bits 2..4 select one of eight remap windows to be read through `+0x2c`. Bits other than 2..4 are preserved.
+{% include registers/WindowSelector.md %}
 
-- **FEATURE_CONTROL**: Bits `0x0018_0200` are set during the memory probe and restored afterwards.
+### WINDOW_VALUE
 
-- **WINDOW_VALUE**: Reads the selected remap window. Eight 32-bit descriptors are sampled once at startup.
+{% include registers/RemapWindow.md %}
 
-- **MASK_40**: OR `0x00f0_0000` in the DMA/clock path.
+## Remap windows
 
-- **MASK_44**: AND `0x7fff_f777` at interrupt setup.
+At start-up the firmware selects each window in turn through `WINDOW_SELECTOR` and samples it from `WINDOW_VALUE`. If any window is nonzero, windows 3, 4 and 5 are stored relocated. Three page numbers move up by `0x166`: window 3's bits 27:12, window 4's bits 27:12, and a third formed from window 5's bits 11:0 above window 4's bits 31:28. The firmware reproduces the vendor arithmetic exactly:
 
-- **MASK_48**: AND `0x777f_ffff` at interrupt setup, then OR `0xf0` in the DMA path.
-
-### Remap window relocation
-
-The eight window descriptors are sampled by `FUN_00015944`. If any is nonzero, windows 3, 4 and 5 are rewritten with a relocated base: the page number (bits 12..27) is shifted, biased by `0x166` and written back, with window 4 also carrying the overflow into bits 28..31 and window 5 receiving the low nibble of that overflow. This is a fixed translation of the vendor algorithm and is reproduced exactly:
-
-```
+```text
 t3 = ((w3 & 0x0fff_ffff) >> 12) + 0x166
 t4 = ((w4 & 0x0fff_ffff) >> 12) + 0x166
 th = ((w4 >> 28) | (w5 << 4)) + 0x166
@@ -36,4 +29,12 @@ w4 = (w4 & 0x0000_0fff) | (t4 << 12) | (th << 28)
 w5 = (w5 & 0xffff_f000) | ((th & 0xffff) >> 4)
 ```
 
-Window 0 is later read as the remap control word: if its bit 27 is clear, startup mode becomes 3 and the probe sequence runs.
+Window 0 then serves as the remap control word: if its bit 27 is clear, startup mode becomes 3 and the [memory probe](system.html#memory-probe) runs. Whether any window is nonzero also decides a later `PlatformControl.CONFIGURATION` update.
+
+## The CONTROL_04 transition
+
+`CONTROL_04` is written `0x200` exactly once, during [DMA and clock set-up](bringup.html#dma-and-clocks). After this write the packet-RAM word at `0x0900_ff98`, in the download control block, may no longer reflect what was written there. That is a mapping change, not a CPU stop.
+
+<div class="warning" markdown="1">
+**Keep the stack in DTCM across this write.** With the stack in high SRAM the firmware [fails at this write](measurements.html#image-loading-and-timing), in a way that looks like a packet-memory fault.
+</div>

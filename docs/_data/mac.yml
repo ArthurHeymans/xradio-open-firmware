@@ -1,0 +1,96 @@
+# yamllint disable rule:line-length
+# Hand-maintained MAC registers (the firmware reaches them by offset, so there
+# is no Rust layout to generate them from). Rendered by
+# _includes/register-rows.html on reference/mac.md and listed in the register
+# index. `use` is how the firmware accesses the register (W, R or RW); `text`
+# is Markdown; `bits` names a generated bitfield anchor; `count` and `stride`
+# expand a range for the index; `page` names another page that shows the row.
+- section: match
+  rows:
+    - {offset: "0x0030", name: OWN_MAC_LOW, use: W, text: "Own address, octets 0–3, little-endian"}
+    - {offset: "0x0034", name: OWN_MAC_HIGH, use: W, text: "Own address, octets 4–5"}
+    - {offset: "0x0038", name: OWN_MAC_MODE, use: W, bits: match-mode-bits, text: "`0x101`: enabled, own address"}
+    - {offset: "0x003c", name: BSSID_LOW, use: W, text: "BSSID octets 0–3"}
+    - {offset: "0x0040", name: BSSID_HIGH, use: W, text: "BSSID octets 4–5"}
+    - {offset: "0x0044", name: BSSID_MODE, use: W, bits: match-mode-bits, text: "`0x301` while joined as a station; 0 otherwise. An access point matches its own address only."}
+    - {offset: "0x0048", name: SECOND_ADDR_LOW, use: W, text: "Own address, octets 0–3, for the second interface slot"}
+    - {offset: "0x004c", name: SECOND_ADDR_HIGH, use: W, text: "Own address, octets 4–5, for the second interface slot"}
+    - {offset: "0x0050", name: SECOND_ADDR_MODE, use: W, bits: match-mode-bits, text: "`0x101`: enabled, own address"}
+    - {offset: "0x0060", name: "MATCH_WORDS[0..11]", count: 12, use: W, text: "Four entries of three words, at `+0x0060`, `+0x006c`, `+0x0078` and `+0x0084`, initialized disabled: `0xffff_ffff`, `0xff`, `0xff`"}
+- section: mode
+  rows:
+    - {offset: "0x0200", name: MODE, use: W, bits: mac-mode-bits, text: "Base value plus one group of bits per active record"}
+    - {offset: "0x0204", name: FILTER, use: W, text: "Receive filter: `0x0019_8000` while scanning, `0x0279_fe00` when joined. Bit meanings unknown."}
+    - {offset: "0x020c", name: MODE_20C, use: W, text: "Written 3 at packet-DMA start-up; function unknown"}
+    - {offset: "0x0210", name: "TIMING[0..22]", count: 23, use: W, text: "23 words up to `+0x0268`. Cleared at start-up, then rewritten by the [receive image](#receive-register-image)."}
+    - {offset: "0x0270", name: SECOND_PATH, use: W, text: "`0x0100_0000` or `0x0400_0000`, by the second active record's path"}
+    - {offset: "0x02ec", name: RECEIVE_SETUP_2EC, use: W, text: "Written 4 by the receive image; function unknown"}
+    - {offset: "0x0308", name: RECEIVE_SETUP_308, use: W, text: "Written `0x70` by the receive image; function unknown"}
+    - {offset: "0x0310", name: TIMING_310, use: W, text: "Written `0x7800_0000` when scanning and when joined; function unknown"}
+    - {offset: "0x0314", name: SECOND_PATH_ENABLE, use: W, text: "`0x0100_0000` when a second active record shares the channel, else 0"}
+- section: dma
+  rows:
+    - {offset: "0x0614", name: SLOT_TIMING_614, use: W, text: "`0x01cd`, with the slot timings. Inside the [receive DMA](rx-dma.html) block's range but not part of its layout."}
+    - {offset: "0x0618", name: SLOT_TIMING_618, use: W, text: "`0x004d`, with the slot timings, likewise"}
+    - {offset: "0x0800", name: RATE_RAM_BASE, use: W, text: "MAC packet offset of the rate RAM. Rewritten after every channel change."}
+    - {offset: "0x080c", name: PACKET_DMA_CFG, use: W, text: "Cleared at packet-DMA start-up; function unknown"}
+    - {offset: "0x0810", name: SLOT_TIMING_810, use: W, text: "Cleared with the slot timings"}
+- section: response
+  rows:
+    - {offset: "0x0a00", name: BEACON_CONTROL, use: W, bits: beacon-control-bits, text: "`0x1030_0000` idle, `0x1030_0001` armed"}
+    - {offset: "0x0a04", name: RESPONSE_ENABLE, use: RW, bits: response-slots-bits, text: "Bit *n* enables pointer slot *n* + 2. The mode writes set it whole, `0x0018_0180` while scanning and `0x0018_0783` when joined; installing the BlockAck slots ORs in their bits."}
+    - {offset: "0x0a08", name: RESPONSE_BITMAP_SET, use: RW, bits: response-slots-bits, text: "Bit *n* set when pointer slot *n* + 2 is programmed. Keep it set while the slot is in use."}
+    - {offset: "0x0a0c", name: RESPONSE_BITMAP_CLEAR, use: RW, bits: response-slots-bits, text: "Bit *n* set when slot *n* + 2 is programmed, and cleared again for the BlockAck slots 11 and 12. Function unknown."}
+    - {offset: "0x0a10", name: RESPONSE_STATE, use: RW, bits: response-slots-bits, text: "24-bit per-slot bitmap; bit *n* cleared when slot *n* + 2 is programmed. Function unknown."}
+    - {offset: "0x0a14", name: SLOT_FIELD_LOW, use: W, text: "Written 0 whole when a BlockAck slot up to 17 is configured, and by the receive image; function unknown"}
+    - {offset: "0x0a18", name: SLOT_FIELD_HIGH, use: W, text: "Written 0 whole when a BlockAck slot above 17 is configured; `0x8000` in the receive image; function unknown"}
+    - {offset: "0x0a1c", name: RESPONSE_MASK, use: W, text: "`0x827b_ffdf` when scanning and when joined; function unknown"}
+    - {offset: "0x0a28", name: RADIO_STOP, use: W, tag: inferred, text: "Cleared when the radio stops for a channel change"}
+    - {offset: "0x0c00", name: RESPONSE_POINTER_BASE, use: W, text: "MAC packet offset of the 32-entry pointer table"}
+- section: events
+  rows:
+    - {offset: "0x0a20", name: MAC_EVENT_FIFO, use: R, bits: mac-event-word-bits, text: "Each read pops one event word"}
+    - {offset: "0x0a24", name: EVENT_READINESS, use: R, bits: event-readiness-bits, text: "Bit 31 set when the event FIFO is empty"}
+- section: tsf
+  rows:
+    - {offset: "0x0e00", name: TIMING_BLOCK, use: W, text: "`0x4f00_004f` at start-up; function unknown"}
+    - {offset: "0x0e04", name: TIMING_BLOCK_4, use: W, text: "`0x0909_0000` at start-up, after which `+0x0e08`–`+0x0e2c`, `BEACON_TIMER` included, are cleared; function unknown"}
+    - {offset: "0x0e08", name: BEACON_TIMER, use: W, bits: beacon-timer-bits, text: "Next beacon time; 0 disarms"}
+    - {offset: "0x0e34", name: TSF_CONTROL, use: RW, text: "Written 0, then 3, at start-up. The IRQ 26 handler writes back its value masked with `0x1f00_0003`."}
+    - {offset: "0x0e38", name: TSF_LOW, use: RW, text: "Low 32 bits of the 64-bit microsecond TSF; cleared at start-up"}
+    - {offset: "0x0e3c", name: TSF_HIGH, use: RW, text: "High 32 bits. Read high, low, high again, and retry if the high word changed."}
+    - {offset: "0x0e94", name: BEACON_AIRTIME, use: W, text: "Airtime of a 24-octet frame at the beacon rate, with a small per-configuration adjustment"}
+- section: slot
+  rows:
+    - {offset: "0x0428", name: SLOT_TIMING_428, use: W, text: "Written `0x049d` with the slot timings; function unknown"}
+    - {offset: "0x042c", name: SLOT_TIMING_42C, use: W, text: "Written `0x049d` with the slot timings; function unknown"}
+    - {offset: "0x0434", name: SLOT_TIMING_434, use: W, text: "Written `0x003d` with the slot timings; function unknown"}
+    - {offset: "0x0438", name: SLOT_TIMING_438, use: W, text: "Written `0x003d` with the slot timings; function unknown"}
+    - {offset: "0x043c", name: SLOT_TIMING_43C, use: W, text: "Written `0x0298` with the slot timings; function unknown"}
+    - {offset: "0x0440", name: SLOT_TIMING_440, use: W, text: "Written `0x0298` with the slot timings; function unknown"}
+    - {offset: "0x0444", name: SLOT_TIMING_444, use: W, text: "Written `0x0258` with the slot timings; function unknown"}
+    - {offset: "0x0448", name: SLOT_TIMING_448, use: W, text: "Written `0x0258` with the slot timings; function unknown"}
+    - {offset: "0x044c", name: SLOT_TIMING_44C, use: W, text: "Written `0x0134` with the slot timings; function unknown"}
+    - {offset: "0x0e30", name: SLOT_BASE, use: W, text: "`base × 8 − 1`"}
+    - {offset: "0x0e58", name: SLOT_X16, use: W, text: "`base × 16 + 2`"}
+    - {offset: "0x0e5c", name: SLOT_X24, use: W, text: "`base × 24 + 2`"}
+    - {offset: "0x0e64", name: EDCA_AIFS, use: W, text: "Packed AIFS values of the active record, written when they change as a frame is staged"}
+- section: scheduler
+  rows:
+    - {offset: "0x0e60", name: PIPE_CFG_60, use: W, text: "Written 2 at start-up; function unknown"}
+    - {offset: "0x0e70", name: "PIPE_QUANTUM[0..3]", count: 4, use: W, text: "One word per pipe, at `+0x0e70`–`+0x0e7c`: `(quantum + 0x1f) >> 5`, written as each frame is staged"}
+    - {offset: "0x0e80", name: PIPE_CFG_80, use: W, text: "Written `0x100` at start-up; function unknown"}
+    - {offset: "0x0e84", name: PIPE_SCHEDULER, use: RW, bits: pipe-scheduler-bits, text: "Read once per event; acknowledged by writing the ones' complement of the serviced bit"}
+    - {offset: "0x0e88", name: PIPE_CFG_88, use: W, text: "Written `0xff` at start-up; function unknown"}
+    - {offset: "0x0e8c", name: COMMAND_FETCH, use: RW, tag: hypothesis, text: "`0xbf` at start-up, after 0 in the second pass; the name assumes it enables command fetch. In operation the pipe watchdog clears bits 5:2 for about 2 µs and restores the saved value when a pipe nears expiry. Those bits may gate reception rather than fetch."}
+    - {offset: "0x0e98", name: PIPE_TRIGGER, use: W, bits: pipe-trigger-bits, text: "Tells the MAC which pipes the firmware has published to or serviced"}
+- section: control
+  rows:
+    - {offset: "0x1000", name: PACKET_CONTROLLER, use: W, text: "1 enables the packet controller: the last hardware step before the startup indication"}
+    - {offset: "0x1300", name: MATCH_CONTROL, use: W, text: "0, then `0x0100_0000`, just before the match entries are initialized"}
+    - {offset: "0x1400", name: DEBUG_CONTEXT, use: W, text: "Written 0, after the four words below, at start-up and before a station transmits after a retune; function unknown"}
+    - {offset: "0x1404", name: DEBUG_CONTEXT_4, use: W, text: "0 at start-up and before a station transmits after a retune"}
+    - {offset: "0x1408", name: DEBUG_CONTEXT_8, use: W, text: "0 at start-up and before a station transmits after a retune"}
+    - {offset: "0x140c", name: DEBUG_CONTEXT_C, use: W, text: "`0x7ff` at start-up; 0 before a station transmits after a retune"}
+    - {offset: "0x1410", name: DEBUG_CONTEXT_10, use: W, text: "0 at start-up and before a station transmits after a retune"}
+    - {address: "0x09c1_0000", name: MAC_10000, use: W, text: "Outside the MAC window, at `+0x1_0000`. Cleared at packet-DMA start-up; function unknown."}

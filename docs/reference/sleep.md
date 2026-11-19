@@ -1,39 +1,55 @@
 ---
-title: Waiting for interrupts
-section: Hardware reference
+title: Idle and sleep
+description: When the XR819 firmware's CPU waits for an interrupt, and how a station's receiver dozes in 802.11 power save.
 ---
-# Waiting for interrupts
+Two different things save power. The **CPU** waits for an interrupt whenever the main loop has nothing to do; this is invisible to the network. In **802.11 power save**, a station tells its access point that it sleeps and turns its receiver off between beacons.
 
-The firmware services interrupts but keeps FIQ masked. The MAC's event line is FIQ: it ends a wait-for-interrupt without ever appearing as a pending source.
+## CPU sleep
 
-```
-_irq_handler (IRQ mode, IRQ+FIQ masked)
-    pending = controller.pending
-    controller.enable &= ~pending       mask every pending source
-    controller.acknowledge = pending    clear them
-    RAISED |= pending                   record for the owner
+The main loop sleeps with the ARM966E-S's wait for interrupt (`mcr p15, 0, r0, c7, c0, 4`). The core wakes when any source the [interrupt controller](interrupts.html) lets through is pending, whether or not IRQ is masked in the CPSR, and also on the MAC's [FIQ line](interrupts.html#the-fiq-line).
 
-main loop
-    owner takes its bit from RAISED, clears the cause in its device,
-    then re-arms its source
+### When
 
-idle path
-    if nothing changed for 5 ms: arm timer 1 for the next deadline,
-    mask IRQ, check once more, then WFI
-```
+Each owner exposes an activity fingerprint: HIF ring cursors, RX FIFO offsets and the frame being decrypted, AES transfer states, host TX context states and MAC events serviced. A pass of the loop that changes none of them is idle.
 
-Why the masking matters: a level source (HIF) cannot re-enter the handler before its owner ran, and a latched source (AES, timer) is not lost while its owner is busy. Main-loop state is never touched from the handler.
+Once passes have been idle for 5 ms, every idle pass ends with a sleep. The sleep's programmed timeout is the time to the next timed work:
 
-### Linger and wake policy
+- the pipe watchdog, every 200 ms;
+- beacon-loss detection;
+- an ADDBA response, or a BlockAck an aggregate still waits for;
+- the end of a scan dwell, or the next probe request;
+- an access point's next beacon;
+- a power-save deadline: the end of a doze, a null frame to retry, or the idle time before dozing.
 
-While work is in flight (frames queued for the MAC, mid-decryption, held for reordering, or output the host has not read) a sleep lasts at most 1 ms: not every step raises an interrupt or names a deadline. After 5 ms of idle passes the loop sleeps until the next timed work: the pipe watchdog every 200 ms, beacon loss, an ADDBA response timeout, a missing BlockAck, the end of a scan dwell, or the next probe delay. A scan that tunes, settles or stops the radio keeps the loop awake.
+While any work is still in flight, such as frames queued for the MAC, a frame being decrypted or held for reordering, or output the host has not read, the timeout is capped at 1 ms instead: not every step of that work raises an interrupt or names a deadline. A scan step that tunes, settles or stops the radio keeps the loop awake.
 
-| Condition | Downlink loss (30 Mbit/s) | Note |
-| --- | --- | --- |
-| Sleep between frames, 1 ms bound, minimal host driver | 0.5 - 7 % | Worse with the write buffer drained before each wait |
-| Same, 200 µs bound | 0.5 - 7 % | The bound does not matter, the wait itself does |
-| Busy-wait on the same conditions | 0 - 0.1 % | No wait-for-interrupt at all |
-| Sleep between frames, stack driver | 0.03 - 0.04 % | Vendor firmware: 0.01 - 0.04 % |
-| Linger policy (current), stack driver | 0.03 - 0.06 % | Frames of a flow keep the loop awake |
+### How
 
-An associated idle board wakes about 20 times per second for beacons and the watchdog, and sleeps about 99 % of the time.
+With IRQ masked in the CPSR, the loop checks once more whether the IRQ handler has recorded a source. If not, it arms [timer 1](timers.html#programming) with the timeout and waits for interrupt. Afterwards it stops timer 1, acknowledges IRQ 6 and unmasks IRQ. A source that becomes pending after the check still ends the wait, and the handler records it once IRQ is unmasked.
+
+| Wake source | Seen as |
+|---|---|
+| Timer 1, the timeout | IRQ 6 |
+| A host message or a finished transfer to the host | IRQ 13 |
+| An AES transfer completing | IRQ 18 or 20 |
+| A received frame, or any other MAC event | The [FIQ line](interrupts.html#the-fiq-line) |
+{: .compact}
+
+An associated, idle board wakes about 20 times a second, for beacons and the watchdog. The 5 ms linger keeps the loop awake between the frames of a flow: sleeping between them [lost frames](measurements.html#sleeping-between-frames) with one host driver.
+
+## Station power save
+
+The host enables power save with `SET_PM_REQ`: mode 1 (legacy) or `0x81` (fast), with an idle time that defaults to 100 ms. The firmware records the mode, confirms the request and queues `SET_PM_COMPLETE_IND`; it does not wait for the access point. The indication reports `0x81` for either power-save mode, a legacy request included. Both modes then run as dynamic power save:
+
+1. **Fall asleep.** After the idle time without traffic, send the AP a null-data frame with the power-management bit set. A null frame that gets no ACK is sent again after 20 ms.
+2. **Doze.** While the AP considers the station asleep, nothing is in flight and no scan runs, turn the receiver off until 5 ms before a selected beacon: at most two beacon intervals ahead, never past a DTIM, and never past the beacon-loss deadline. Dozes shorter than 5 ms are skipped.
+3. **Listen.** Bring the receiver back for the beacon; this takes about 3.6 ms. If its TIM says the AP holds frames for the station, send a null frame with the power-management bit clear. After a DTIM beacon that announces group frames, stay on until the last of them, for at most 10 ms. After a missed beacon, stay on until the next one.
+4. **Wake.** The station's own data frames carry the power-management bit clear and wake it as well.
+
+### Receiver off and on
+
+| Step | Hardware |
+|---|---|
+| Off | Clear `RxDma.CONTROL.ENABLE` and wait for `ACTIVE` to clear; stop the PHY's current operation; `PlatformControl.POWER_CONTROL` = `0x10` |
+| On | [Retune](sequences.html#retuning-to-a-channel) the operating channel through full RF initialization, and [restore the joined state](sequences.html#restoring-the-joined-state) as at the end of a scan |
+{: .compact}

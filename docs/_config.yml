@@ -1,5 +1,14 @@
-title: XRadio firmware
+title: XR819 open firmware
+description: >-
+  Rust firmware for the XRadio XR819 Wi-Fi chip,
+  and a reference manual for its hardware.
 baseurl: /xradio-open-firmware
+markdown: kramdown
+kramdown:
+  input: GFM
+  hard_wrap: false
+exclude:
+  - README.md
 defaults:
   - scope:
       path: ""

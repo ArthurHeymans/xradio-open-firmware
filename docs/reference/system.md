@@ -1,15 +1,32 @@
 ---
 title: System control
-section: Hardware reference
+description: The XR819 system control block at 0x0a98_0000, used by the memory probe and the DMA and clock set-up.
 ---
-# System control
+Three registers at `0x0a98_0000`. Two start-up steps use them: the memory probe during platform preparation, and the DMA and clock set-up. Each flips a pair of bits whose function is unknown; [Platform bring-up](bringup.html) gives the order.
 
-Three registers. Used by memory probing and by DMA/clock bring-up.
+## Registers
 
 {% include registers/SystemControl.md %}
 
-- **CONTROL**: Probe path: clear bit 5, set bit 6. DMA path: clear bit 7, set bit 4.
+### CONTROL
 
-- **STATUS**: Bit 5 is polled after the bit-6 transition; it reads 0 on this device and moves startup mode from 3 to 1.
+{% include registers/SystemControlBits.md %}
 
-- **SECONDARY_CONTROL**: Bit 6 set during the probe. DMA path: bit 4 cleared. Bit 6 is cleared again if `STATUS` bit 5 reads set.
+### STATUS
+
+{% include registers/SystemStatusBits.md %}
+
+### SECONDARY_CONTROL
+
+{% include registers/SecondaryControlBits.md %}
+
+## Memory probe
+
+The probe runs only when remap window 0 has bit 27 clear (see [Clock and reset](clock.html#remap-windows)):
+
+1. Set startup mode 3 and OR `0x0018_0200` into the clock block's `FEATURE_CONTROL`.
+2. In `CONTROL`, clear bit 5 and set bit 6. Set `SECONDARY_CONTROL` bit 6.
+3. Read `STATUS` bit 5. If it is set, clear `SECONDARY_CONTROL` bit 6 and read `STATUS` again; if bit 5 has now cleared, drop to startup mode 1.
+4. Restore `FEATURE_CONTROL`.
+
+The startup mode is recorded for later use: the PHY set-up checks its bit 1.

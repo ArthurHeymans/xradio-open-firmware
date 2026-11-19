@@ -1,0 +1,12 @@
+# yamllint disable rule:line-length
+# Hand-maintained words near the platform control block that the firmware
+# writes without a typed layout. Same fields as mac.yml, with full addresses;
+# `block` overrides the block named in the register index.
+- section: extra
+  rows:
+    - {address: "0x0ac8_005c", name: PLATFORM_5C, use: W, text: "`0x6a25_5800` during RF start-up when no remap window is present; function unknown"}
+    - {address: "0x0ac8_00e8", name: PLATFORM_E8, use: W, text: "`0x10c` with the word above; function unknown"}
+- section: console
+  rows:
+    - {address: "0x0a90_0004", name: UART_4, use: W, page: bringup, block: Debug console, text: "Debug console UART register; written `0x2b`"}
+    - {address: "0xfff0_32ec", name: SUPPORT_32EC, use: W, page: bringup, block: High SRAM, text: "A word in the vendor's high-SRAM support data; written 1"}

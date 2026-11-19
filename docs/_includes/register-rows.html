@@ -1,0 +1,17 @@
+{%- comment -%}
+Hand-maintained register table. Parameters: data (site.data.mac or
+site.data.phy), section, and prefix (row anchor prefix: mac or phy).
+MAC rows carry an offset from 0x09c0_0000; other rows, or MAC rows
+outside the window, a full address.
+{%- endcomment -%}
+{%- assign group = include.data | where: 'section', include.section | first -%}
+<div class="table-wrap"><table class="registers hand">
+{% if include.prefix == 'mac' %}<colgroup><col style="width:6.5rem"><col style="width:7.5rem"><col style="width:13rem"><col style="width:4.5rem"><col></colgroup>{% else %}<colgroup><col style="width:7.5rem"><col style="width:13rem"><col style="width:4.5rem"><col></colgroup>{% endif %}
+<thead><tr>{% if include.prefix == 'mac' %}<th style="text-align:right">Offset</th>{% endif %}<th style="text-align:right">Address</th><th>Register</th><th>Access</th><th>Description</th></tr></thead>
+<tbody>
+{%- for r in group.rows %}
+{%- assign row = r.name | downcase | replace: '_', '-' | split: '[' | first | prepend: '-' | prepend: include.prefix %}
+{%- if r.address %}{% assign address = r.address %}{% else %}{% assign address = r.offset | remove_first: '0x' | prepend: '0x09c0_' %}{% endif %}
+<tr>{% if include.prefix == 'mac' %}<td style="text-align:right">{% if r.offset %}<code>+{{ r.offset }}</code>{% else %}—{% endif %}</td>{% endif %}<td style="text-align:right"><code>{{ address }}</code></td><td><span id="{{ row }}"></span>{% if r.bits %}<a href="#{{ r.bits }}"><code>{{ r.name }}</code></a>{% else %}<code>{{ r.name }}</code>{% endif %}</td><td>{{ r.use }}</td><td>{{ r.text | markdownify | remove: '<p>' | remove: '</p>' | strip }}{% if r.tag %} <span class="tag {{ r.tag }}">{{ r.tag }}</span>{% endif %}</td></tr>
+{%- endfor %}
+</tbody></table></div>

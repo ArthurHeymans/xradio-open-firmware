@@ -1,0 +1,12 @@
+{%- comment -%} List items for the h2 and h3 headings of a page. {%- endcomment -%}
+{%- for part in include.headings offset: 1 -%}
+  {%- assign level = part | slice: 0 -%}
+  {%- if level == '2' or level == '3' -%}
+    {%- assign id = part | split: 'id="' | slice: 1 | first | split: '"' | first -%}
+    {%- if id != '' -%}
+    {%- assign close = '</h' | append: level | append: '>' -%}
+    {%- assign head = part | split: close | first | split: '">' | slice: 1, 9 | join: '">' | strip_html %}
+<li class="toc-h{{ level }}"><a href="#{{ id }}">{{ head | replace: '_', '_<wbr>' }}</a></li>
+    {%- endif -%}
+  {%- endif -%}
+{%- endfor -%}

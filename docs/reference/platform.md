@@ -1,25 +1,35 @@
 ---
 title: Platform control
-section: Hardware reference
+description: The XR819 platform control block at 0x0ac8_0000, its clock and power settings and their ordering.
 ---
-# Platform control
+The first `0xc0` bytes of the `0x0ac8_0000` window hold clock, power and configuration words. The [DMA and clock set-up](bringup.html#dma-and-clocks) writes most of them once; their encodings are largely unknown, so the firmware writes the vendor's values in the vendor's order.
+
+## Registers
 
 {% include registers/PlatformControl.md %}
 
-- **SHARED_POINTER**: The DMA setup writes `0x0004_0090`. Its encoding is not established; the value is not a CPU-form DTCM address.
+### READY_STATUS
 
-- **POWER_CONTROL**: `0x10`.
+{% include registers/PlatformReady.md %}
 
-- **READY_STATUS**: Bit 0 set when the clock/PLL block has settled; polled with a bound of `0x200` iterations.
+### CLOCK_STATUS
 
-- **CLOCK_FLAGS**: `0x0c02` when `+0x94` bit 3 is clear, else `0x0042`.
+{% include registers/PlatformClockStatus.md %}
 
-- **CLOCK_STATUS**: Bit 3 selects between the two clock-flag words above.
+### CONFIGURATION
 
-- **PARAMETER_9C**: `6`.
+{% include registers/PlatformConfiguration.md %}
 
-- **PARAMETER_A0**: `31`.
+## Other platform words
 
-- **CONFIGURATION**: Before platform init: clear bit 0, set bit 23. Later, if no remap windows are present, OR `0x0012_0000`.
+Two words the typed layout does not declare, written during RF start-up: one inside its range and one beyond it.
 
-**Ordering constraint at `0x0ac8_00bc`.** The `+0xbc` update (clear bit 0, set bit 23) must happen *before* `FUN_000009e0` runs, exactly as the vendor does it from `0x000164c8`. The same applies to `clock_reset+0x04 = 0x200`: it is a single transition whose position in the sequence matters, and it is the point after which a former packet-RAM alias is no longer readable. A lost alias is not evidence that the CPU stopped.
+{% include register-rows.html data=site.data.platform prefix="platform" section="extra" %}
+
+## Ordering
+
+<div class="warning" markdown="1">
+**Update `CONFIGURATION` first.** Clearing bit 0 and setting bit 23 must happen before platform preparation samples the remap windows.
+</div>
+
+The other registers are written during [DMA and clock set-up](bringup.html#dma-and-clocks), in the order given there.

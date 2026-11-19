@@ -1,8 +1,215 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark"><title>{{ page.title | default: 'Documentation' | escape }} · XRadio</title><link rel="stylesheet" href="{{ '/assets/manual.css' | relative_url }}"></head>
-<body><a class="skip" href="#content">Skip to content</a><header><div class="bar"><a class="brand" href="{{ '/' | relative_url }}"><span aria-hidden="true">◒</span> XRadio <small>field manual</small></a><a href="https://github.com/ArthurHeymans/xradio-open-firmware">Source ↗</a></div></header>
-<div class="shell"><aside><nav aria-label="Manual contents">
-{% assign here = page.url %}{% if here == '/reference/' %}{% assign here = '/reference/index.html' %}{% endif %}
-{% for group in site.data.navigation %}{% assign current = false %}{% for item in group.pages %}{% if here == item[1] %}{% assign current = true %}{% endif %}{% endfor %}
-<details {% if current %}open{% endif %}><summary>{{ group.title }}</summary><ul>{% for item in group.pages %}<li><a {% if here == item[1] %}aria-current="page"{% endif %} href="{{ item[1] | relative_url }}">{{ item[0] }}</a></li>{% endfor %}</ul></details>{% endfor %}</nav></aside>
-<main id="content"><p class="eyebrow">XR819 &nbsp;/&nbsp; {{ page.section | default: 'Firmware manual' | escape }}</p>{{ content }}<footer><a href="https://github.com/ArthurHeymans/xradio-open-firmware/blob/main/docs/{{ page.path | escape }}">Page source ↗</a></footer></main></div></body></html>
+{%- assign here = page.url | replace: '/index.html', '/' -%}
+{%- assign flat = '' | split: '' -%}
+{%- assign groups = '' | split: '' -%}
+{%- for group in site.data.navigation -%}
+  {%- for url in group.pages -%}
+    {%- assign target = url | replace: '/index.html', '/' -%}
+    {%- assign flat = flat | push: target -%}
+    {%- assign groups = groups | push: group.title -%}
+    {%- if target == here -%}{%- assign group_title = group.title -%}{%- assign position = flat.size -%}{%- endif -%}
+  {%- endfor -%}
+{%- endfor -%}
+{%- assign headings = content | split: '<h' -%}
+{%- assign toc_count = 0 -%}
+{%- for part in headings offset: 1 -%}
+  {%- assign level = part | slice: 0 -%}
+  {%- if level == '2' -%}{%- assign toc_count = toc_count | plus: 1 -%}{%- endif -%}
+{%- endfor -%}
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>{% if page.url == '/' %}{{ site.title }}{% else %}{{ page.title | escape }} · {{ site.title }}{% endif %}</title>
+{%- if page.description %}<meta name="description" content="{{ page.description | escape }}">{% endif %}
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23134e4a'/%3E%3Cpath d='M8 21a11 11 0 0 1 16 0M11 17.5a7 7 0 0 1 10 0' stroke='%23a7f3d0' stroke-width='2.4' fill='none' stroke-linecap='round'/%3E%3Ccircle cx='16' cy='23' r='2' fill='%23a7f3d0'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="{{ '/assets/manual.css' | relative_url }}">
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+<header class="site-header">
+  <div class="bar">
+    <a class="brand" href="{{ '/' | relative_url }}"><svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7"/><path d="M8 21a11 11 0 0 1 16 0M11 17.5a7 7 0 0 1 10 0"/><circle cx="16" cy="23" r="2"/></svg>XR819 <span>open firmware manual</span></a>
+    <div class="search" role="search">
+      <input id="site-search" type="search" placeholder="Search the manual" aria-label="Search the manual" autocomplete="off">
+      <ol id="search-results" hidden aria-live="polite"></ol>
+    </div>
+    <nav class="header-links" aria-label="Shortcuts">
+      <a href="{{ '/reference/registers.html' | relative_url }}">Register index</a>
+      <a class="repo" href="https://github.com/ArthurHeymans/xradio-open-firmware">GitHub</a>
+    </nav>
+  </div>
+</header>
+<div class="shell{% if toc_count > 1 %} has-toc{% endif %}">
+  <aside class="sidebar">
+    <details class="menu" open>
+      <summary>Contents</summary>
+      <nav aria-label="Manual">
+      {%- for group in site.data.navigation %}
+        <p class="nav-group">{{ group.title }}</p>
+        <ul>
+        {%- for url in group.pages -%}
+          {%- assign target = url | replace: '/index.html', '/' -%}
+          {%- assign entry = site.pages | where: 'url', target | first %}
+          <li><a href="{{ target | relative_url }}"{% if target == here %} aria-current="page"{% endif %}>{{ entry.nav_title | default: entry.title }}</a></li>
+        {%- endfor %}
+        </ul>
+      {%- endfor %}
+      </nav>
+    </details>
+    <script>
+if (matchMedia('(max-width: 52rem)').matches) document.querySelector('.menu').removeAttribute('open');
+else document.querySelector('.sidebar [aria-current]')?.scrollIntoView({ block: 'center' });
+</script>
+  </aside>
+  <main id="content">
+    {%- if group_title and page.url != '/' %}
+    <p class="crumb">{{ group_title }}</p>
+    {%- endif %}
+    <h1>{{ page.title }}</h1>
+    {%- if toc_count > 1 %}
+    <details class="jump">
+      <summary>On this page</summary>
+      <ul>{% include toc-items.html headings=headings %}</ul>
+    </details>
+    {%- endif %}
+    {{ content }}
+    {%- if position %}
+    {%- assign prev_index = position | minus: 2 -%}
+    <nav class="pager" aria-label="Previous and next page">
+      {%- if prev_index >= 0 %}
+      {%- assign prev = flat[prev_index] -%}{%- assign prev_page = site.pages | where: 'url', prev | first %}
+      <a class="prev" href="{{ prev | relative_url }}"><small>Previous{% if groups[prev_index] != group_title %} · {{ groups[prev_index] }}{% endif %}</small>{{ prev_page.nav_title | default: prev_page.title }}</a>
+      {%- endif %}
+      {%- if position < flat.size %}
+      {%- assign next = flat[position] -%}{%- assign next_page = site.pages | where: 'url', next | first %}
+      <a class="next" href="{{ next | relative_url }}"><small>Next{% if groups[position] != group_title %} · {{ groups[position] }}{% endif %}</small>{{ next_page.nav_title | default: next_page.title }}</a>
+      {%- endif %}
+    </nav>
+    {%- endif %}
+    <footer class="page-footer"><a href="https://github.com/ArthurHeymans/xradio-open-firmware/blob/main/docs/{{ page.path }}">Edit this page</a></footer>
+  </main>
+  {%- if toc_count > 1 %}
+  <nav class="toc" aria-label="On this page">
+    <p>On this page</p>
+    <ul>{% include toc-items.html headings=headings %}
+    </ul>
+  </nav>
+  {%- endif %}
+</div>
+<script>
+// Search: on first use, fetch every page in the sidebar and index its
+// sections, generated tables included. No build step, no server.
+(() => {
+  const pages = {{ flat | jsonify }}.map(u => '{{ site.baseurl }}' + u);
+  const input = document.getElementById('site-search');
+  const list = document.getElementById('search-results');
+  let index = null;
+  async function build() {
+    const parser = new DOMParser();
+    const docs = await Promise.all(pages.map(async url => {
+      try { return [url, parser.parseFromString(await (await fetch(url)).text(), 'text/html')]; }
+      catch { return null; }
+    }));
+    index = [];
+    for (const [url, doc] of docs.filter(Boolean)) {
+      const main = doc.querySelector('main');
+      if (!main) continue;
+      const title = main.querySelector('h1')?.textContent.trim() ?? url;
+      let section = { url, title, heading: '', text: '' };
+      index.push(section);
+      for (const node of main.children) {
+        if (/^H[23]$/.test(node.tagName) && node.id) {
+          section = { url: url + '#' + node.id, title, heading: node.textContent.trim(), text: '' };
+          index.push(section);
+        } else if (!node.matches('nav, footer, .jump, script')) {
+          const walker = doc.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+          const words = [];
+          while (walker.nextNode()) {
+            if (!walker.currentNode.parentElement.closest('thead, .bf-grid')) words.push(walker.currentNode.nodeValue);
+          }
+          section.text += ' ' + words.join(' ').replace(/\s+/g, ' ');
+        }
+      }
+    }
+  }
+  function show(q) {
+    // Addresses match however they are written: 0x09c00e34, 09c0_0e34, 0e34.
+    const terms = q.toLowerCase().split(/\s+/).filter(Boolean).map(t => /^(0x)?[0-9a-f_]+$/.test(t) && /\d/.test(t) ? t.replace(/^0x/, '').replace(/_/g, '') : t);
+    list.replaceChildren();
+    if (!terms.length) { list.hidden = true; return; }
+    const hits = index.map(s => {
+      const hay = (s.heading + ' ' + s.text).toLowerCase();
+      const bare = hay.replace(/_/g, '');
+      if (!terms.every(t => hay.includes(t) || bare.includes(t) || s.title.toLowerCase().includes(t))) return null;
+      const word = t => new RegExp('\\b' + t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b').test(hay);
+      const score = terms.reduce((n, t) => n + (s.heading.toLowerCase().includes(t) ? 5 : 0) + (s.title.toLowerCase().includes(t) ? 3 : 0) + (word(t) ? 2 : 0), 0);
+      const full = s.heading + ' ' + s.text;
+      const first = terms.find(t => hay.includes(t)) ?? terms[0];
+      const hit = Math.max(0, hay.indexOf(first));
+      const at = hit < 40 ? 0 : full.indexOf(' ', hit - 40) + 1;
+      let end = full.lastIndexOf(' ', at + 140);
+      if (end <= at) end = at + 140;
+      return { s, score, snippet: (at ? '… ' : '') + full.slice(at, end).trim() + (end < full.length ? ' …' : '') };
+    }).filter(Boolean).sort((a, b) => b.score - a.score).slice(0, 12);
+    for (const { s, snippet } of hits) {
+      const li = document.createElement('li');
+      const a = document.createElement('a');
+      a.href = s.url;
+      a.innerHTML = '<strong></strong><span></span><small></small>';
+      a.querySelector('strong').textContent = s.title;
+      a.querySelector('span').textContent = s.heading ? ' › ' + s.heading : '';
+      const small = a.querySelector('small');
+      const low = snippet.toLowerCase();
+      const term = terms.find(t => low.includes(t));
+      if (!term) small.textContent = snippet;
+      else {
+        const at = low.indexOf(term);
+        const mark = document.createElement('mark');
+        mark.textContent = snippet.slice(at, at + term.length);
+        small.append(snippet.slice(0, at), mark, snippet.slice(at + term.length));
+      }
+      li.append(a);
+      list.append(li);
+    }
+    if (!hits.length) { const li = document.createElement('li'); li.className = 'none'; li.textContent = 'No match'; list.append(li); }
+    list.hidden = false;
+  }
+  input.addEventListener('focus', () => {
+    if (index) return;
+    list.innerHTML = '<li class="none">Indexing the manual…</li>';
+    list.hidden = false;
+    build().then(() => { if (input.value) show(input.value); else list.hidden = true; });
+  }, { once: true });
+  input.addEventListener('input', () => { if (index) show(input.value); });
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { input.value = ''; show(''); input.blur(); }
+    if (e.key === 'Enter') list.querySelector('a')?.click();
+  });
+  document.addEventListener('click', e => { if (!e.target.closest('.search')) list.hidden = true; });
+  document.addEventListener('keydown', e => {
+    if (e.key === '/' && document.activeElement.tagName !== 'INPUT') { e.preventDefault(); input.focus(); }
+  });
+})();
+// A link into a collapsed table opens it.
+function revealTarget() {
+  const target = document.getElementById(decodeURIComponent(location.hash.slice(1)));
+  const box = target?.closest('details');
+  if (box && !box.open) { box.open = true; target.scrollIntoView(); }
+}
+addEventListener('hashchange', revealTarget);
+revealTarget();
+// Narrow screens show tables as cards; label each cell with its column.
+for (const t of document.querySelectorAll('main table')) {
+  const heads = [...t.querySelectorAll('thead th')].map(th => th.textContent.trim());
+  for (const row of t.querySelectorAll('tbody tr'))
+    [...row.cells].forEach((cell, i) => { if (heads[i]) cell.dataset.label = heads[i]; });
+}
+// Wide tables scroll inside their own box instead of the page.
+for (const t of document.querySelectorAll('main table:not(.table-wrap > table)')) {
+  const w = document.createElement('div'); w.className = 'table-wrap'; t.replaceWith(w); w.append(t);
+}
+</script>
+</body>
+</html>

@@ -1,26 +1,30 @@
 ---
-title: Evidence and sources
-section: Hardware reference
+title: Sources
+description: Where the XR819 reference's facts come from, in this repository and outside it.
 ---
-# Evidence and sources
+Paths are relative to the repository root. The Rust sources are the primary record: register layouts, bit fields and doc comments in them generate the tables in this manual.
 
-Source paths below are relative to the repository root. The annotated decompilation and two notebooks were in the original development tree and are not shipped here. Their function names are annotations, not vendor symbols.
+## In this repository
 
-| Source | Path | Used for |
-| --- | --- | --- |
-| Vendor container layout | [Section stream](../vendor-container-layout.html) | Section stream, 41 MMIO pairs, four copies |
-| Annotated decompilation | xr819-annotated-re-code.md | Function names, argument provenance, ordering claims |
-| Startup flow notebook | xr819-hif-startup-flow.md | Top-level order, `0x9ac`/`0xf6` callees, activation, routing words |
-| AES interface note | xr819-aes-engine.md | Command words, AAD streams, transfer classes |
-| Interrupt and sleep note | docs/interrupts-and-sleep.md | Measured wake behaviour, source survey, sleep-loss table |
-| Packet-RAM contract | docs/packet-ram-address-contract.md | Address classes, ownership rules |
-| Container/layout note | docs/vendor-container-layout.md | Section table, hardware validation of sectioned download |
-| Rust platform module | src/platform.rs | Register blocks, byte-level init sequences, ordering comments |
-| Rust MAC module | src/mac.rs | Mode words, response slots, slot timings, descriptor templates |
-| Rust HIF module | src/hif.rs | Descriptor format, ring depth, status bits, reclaim ordering |
-| Rust radio module | src/radio.rs | FIFO slot header and trailer layout, resynchronization |
-| Rust TX pipes | src/tx/pipe.rs, src/tx/event.rs | Ring layout, GO, event scheduler word |
-| CCMP setup and frame masking | [engine.rs](https://github.com/ArthurHeymans/xradio-open-firmware/blob/main/src/crypto/engine.rs), [mod.rs](https://github.com/ArthurHeymans/xradio-open-firmware/blob/main/src/crypto/mod.rs) | Separate ports for initialization and key/context input; command order and AAD masks |
-| Rust loader | src/loader.rs | The 41 MMIO pairs verbatim |
+| Source | Path | Provides |
+|---|---|---|
+| Platform module | `src/platform.rs` | System, clock, timer and platform register blocks; start-up sequences |
+| Interrupts | `src/interrupts.rs` | Interrupt controller layout and sources; the IRQ handler |
+| Host interface | `src/hif.rs` | Descriptor format, ring depth, status bits, reclaim order |
+| Receive path | `src/radio.rs` | FIFO slot header and trailer, resynchronization |
+| Main loop | `src/firmware.rs`, `src/activity.rs` | Pass order, sleep timeout, linger |
+| Power save | `src/power_save.rs`, `src/phy/mod.rs` | Station power save, receiver doze |
+| A-MPDU | `src/tx/aggregate.rs`, `src/tx/ampdu.rs` | Aggregate command streams, BlockAck resolution |
+| MAC | `src/mac.rs` | Mode words, response slots, slot timings, descriptor templates |
+| TX pipes | `src/tx/pipe.rs`, `src/tx/event.rs` | Ring layout, `GO`, event and scheduler words |
+| AES/CCMP | `src/crypto/engine.rs`, `src/crypto/mod.rs` | Command order, AAD masks, the initialization stream |
+| Packet RAM | `src/packet_ram.rs`, `link-main-low.x` | Object layout, address encoders |
+| Loader | `src/loader.rs`, `src/download.rs` | The 41 register writes, the PHY tables, the download protocol |
+| Image packer | `xtask/src/image.rs` | Container records built from the ELF |
+| Vendor data | `src/init_data.rs` | [Vendor initialization data](../init-data.html) |
 
-No web sources were used. The vendor image hash, container boundaries and the 41 register pairs were verified byte-for-byte against the matching container `fw_xr819.bin` (size 0x1fe44, SHA256 3e2462d476c9dfcb907cda1ba81d0a6d1bbee5e3207bdc1911ec5042d96fdfca).
+## Outside this repository
+
+The reverse engineering used an annotated decompilation of the vendor runtime and two notebooks, one on the start-up flow and one on the AES engine. They are not published. Function names taken from them, such as `mac_irq_handler`, are annotations, not vendor symbols.
+
+The vendor image, its container boundaries and the 41 register writes were verified byte for byte against the vendor `fw_xr819.bin` of 130,628 bytes, SHA-256 `3e2462d476c9dfcb907cda1ba81d0a6d1bbee5e3207bdc1911ec5042d96fdfca`.

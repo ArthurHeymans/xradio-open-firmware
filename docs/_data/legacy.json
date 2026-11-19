@@ -18,7 +18,7 @@
   "hif-flow": "reference/hif-flow.html",
   "mac": "reference/mac.html",
   "map": "reference/index.html",
-  "map-packet": "reference/index.html#s2-2",
+  "map-packet": "reference/index.html#packet-sram-objects",
   "pdm": "reference/rx-dma.html",
   "phy": "reference/phy.html",
   "regs": "reference/interrupts.html",

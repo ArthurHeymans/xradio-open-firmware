@@ -1,69 +1,66 @@
 ---
-title: SDIO host interface
-section: Hardware reference
+title: Host interface
+description: The XR819 host interface (HIF), its descriptor rings, status bits and flow control.
 ---
-# SDIO host interface
+The host interface (HIF) is a descriptor-driven DMA engine between the SDIO function and packet RAM. One ring carries messages from the host, a second carries messages to it, and a separate emergency descriptor serves the fatal-exception path. Every message is a [WSM message](wsm.html).
 
-The two descriptor rings face opposite directions. A descriptor becoming available and the host finishing a transfer are different events.
+## Descriptor format {#descriptor}
 
-The HIF is a descriptor-driven DMA engine between the SDIO function and packet RAM. It has two rings in opposite directions plus a dedicated emergency descriptor used by the fatal-exception path. Both rings are memory-mapped in the CPU's address space, so firmware behaviour is "publish a descriptor, then read the engine's status registers".
-
-## Descriptor format (8 bytes)
-{:#s6-1}
+Both rings use the same 8-byte descriptor.
 
 {% include registers/Descriptor.md %}
 
-### CONTROL bitfield
+### Descriptor CONTROL {#descriptor-control-word}
 
 {% include registers/DescriptorControl.md %}
 
-The Rust `LENGTH` mask includes bit 0, which the driver sets to publish ownership. Bits 12:1 encode the even transfer length. The hardware descriptor uses the low two bits of the WSM sequence.
+## Input ring
 
-## Ring 1: host-to-firmware descriptors (0x0ab0_0000)
-{:#s6-2}
-
-32 descriptors, 8 bytes each, covering the 30 input buffers of `0x660` bytes. Slots 30 and 31 are published with a zero address and zero control.
+Thirty-two host-to-firmware descriptors at `0x0ab0_0000`, refilled in turn as the firmware returns buffers. The host writes a message into an input buffer; the firmware reads the 4-byte WSM header (length, then ID, both little-endian 16-bit) at the buffer start and the payload at `+4`.
 
 {% include registers/RxShared.md %}
 
-The engine writes the received message into the buffer; the firmware reads the 4-byte WSM header (*length* LE16, *id* LE16) at the buffer start and the payload at `+4`.
+## Output ring and control
 
-## Ring 2 and shared registers (0x0ab0_0100)
-{:#s6-3}
+Four firmware-to-host descriptors and the shared control registers at `0x0ab0_0100`. A descriptor points either at an output buffer or, for a received frame, directly at the frame's [RX FIFO slot](rx.html#handing-a-frame-to-the-host).
 
 {% include registers/HifShared.md %}
 
-- **TX[0..3]**: Four firmware-to-host descriptors, same format as above. Packet buffers are `0x180` bytes in the linker-owned output pool.
-
-- **CONTROL**: Bits 10:0 length mask. Vendor writes `0x7ff`; if bit 10 already reads set it writes `0x7f7` and the firmware's per-message length mask becomes `value & 0x07f8`.
-
-- **STATUS**: Cause bits. Bit 1 = transmit completion pending; bit 2 = host request ready. Only these two schedule work.
-
-- **INTERRUPT_ACK**: Write the value read from `+0x24` to clear the causes. Re-arming IRQ 13 before all causes are acknowledged loses events.
-
-- **EMERGENCY_ADDRESS**: Bus address of the fatal-exception message buffer.
-
-- **EMERGENCY_CONTROL**: Same bitfield as a normal descriptor control word, plus the emergency sequence.
-
-- **STARTUP_STATUS**: Startup wait condition; the agent that clears bit 10 has not been identified. The vendor routine at `0xab4` reads +0x40 once, then polls bit 10 at `0x0ab00134` until clear. The two reads are not interchangeable.
-
-- **ACTIVATION**: Named for the vendor routine that reads it. Reads `2` in the working vendor runtime; the routine does not identify who provided the value.
-
-## Ring geometry and flow control
-{:#s6-4}
-
-| Parameter | Value | Meaning |
-| --- | --- | --- |
-| Input buffers | 30 × 0x660 | Announced to the host in the startup indication (`input_buffers`, `input_buffer_size`). |
-| Output descriptors | 4 | Hardware ring depth. Only four messages may be in flight in this direction. |
-| Output queue depth | 64 | Software staging queue, independent of the hardware ring. |
-| Input ring descriptors | 32 | Two slots beyond the buffer count stay disabled. |
-| Sequence width | 2 bits | Per-descriptor; wraps independently of the 64-entry queue. |
-
-**Ownership rule.** A cleared descriptor control word alone is not a transfer-completion notification: the engine may clear it after fetching the descriptor but before the host has finished reading the buffer. Firmware must treat HIF status bit 1 as the completion event, and status bit 2 as the request-ready event, with the descriptor being reclaimed only afterwards. Vendor `hif_tx_confirm_drain` ordering is explicit: make the descriptor slot reusable and push its successor *before* releasing the completed message's backing storage.
-
-## Shared control mask
+### CONTROL
 
 {% include registers/HifControl.md %}
 
-[Follow a host startup handshake →](hif-flow.html)
+### STATUS, INTERRUPT_ACK
+
+{% include registers/HifStatus.md %}
+
+### STARTUP_STATUS
+
+{% include registers/HifStartup.md %}
+
+## Ring geometry
+
+| Parameter | Value | Notes |
+|---|---|---|
+| Input buffers | 30 × `0x660` | Announced to the host in the startup indication |
+| Input descriptors | 32 | Two start empty; refills rotate through all 32 |
+| Output descriptors | 4 | At most four messages in flight to the host |
+| Output queue | 64 entries | Software staging, independent of the hardware ring |
+| Sequence | 2 bits per descriptor | Wraps independently of the queue |
+
+## Ownership
+
+<div class="warning" markdown="1">
+**A cleared descriptor is not a completion.** The engine may clear a descriptor's control word after fetching it but before the host has finished reading the buffer. Reuse an output buffer only after `STATUS.TX_DONE`.
+</div>
+
+When `TX_DONE` is seen, the firmware walks the output descriptors in order and treats each one whose `OWN` bit has already cleared as complete. The reasoning: `TX_DONE` is raised after the host has read the buffers, so a descriptor released before it was raised has been read too <span class="tag inferred">inferred</span>. For each, it first makes the slot reusable and stages the next queued message, and only then releases the completed message's buffer. On the input side, `RX_READY` schedules the firmware to take one request. It takes it only when a reply could be sent at once: an output buffer is free and the 64-entry output queue has room. Otherwise the request waits. After taking one, the firmware checks the next input descriptor: if its `OWN` bit has cleared, it schedules that request as well, without waiting for another `RX_READY`.
+
+## Sequence numbers
+
+Two sequence numbers travel with each output message:
+
+- The message's WSM ID carries a 3-bit sequence number in bits 15:13. The firmware writes it into the buffer when it stages the message; it counts staged messages, skipping the numbers used by emergency messages, because the host counts both.
+- The descriptor's `SEQUENCE` field carries bits 14:13 of the ID as the message was queued, before that rewrite.
+
+[Host handshake](hif-flow.html) shows how the HIF is brought up, and [Programming checklists](sequences.html#publishing-one-hif-output-message) how one output message is published.

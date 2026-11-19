@@ -1,107 +1,186 @@
 ---
-title: MAC registers
-section: Hardware reference
+title: MAC
+description: The XR819 MAC register window at 0x09c0_0000, grouped by function, with the mode, event and scheduler word layouts.
 ---
-# MAC registers
+The MAC window at `0x09c0_0000` spans `0x2000` bytes but is sparse: the firmware uses more than a hundred of its offsets, grouped here by function. Offsets are written `+0x0e34`, relative to the window. Receive packet DMA, at `+0x0600`, has [its own page](rx-dma.html). Words that only the start-up image writes are listed under [Receive register image](#receive-register-image). Every register is also in the [register index](registers.html).
 
-The tables below describe register behavior, including vendor observations. For the literal offsets selected by the current Rust MAC routines, see the [source inventory](mac-access.html). Computed slot addresses are not enumerated there.
+The Access column says how the firmware uses a register: W written, R read, RW both.
 
-The MAC aperture is sparse. Offsets below are the ones the vendor image and the open firmware actually touch; unused holes exist between them. Absolute address is `0x09c0_0000 + offset`.
+## Address match
 
-## Address match and interface identity
-{:#s8-1}
+Three address entries, each a low word, a high word and a mode word, decide which frames the MAC accepts and acknowledges. Four further entries at `+0x0060` are initialized disabled and not used.
 
-| Offset | Name | Observed programming | Conf. |
-| --- | --- | --- | --- |
-| 0x0030 | OWN_MAC_LOW | Station address octets 0..3, little-endian. Written twice (two address entries) together with the registers below. | Observed |
-| 0x0034 | OWN_MAC_HIGH | Station address octets 4..5. | Observed |
-| 0x0038 | OWN_MAC_MODE | `0x101` for the own-address entry. | Observed |
-| 0x003c | BSSID_LOW | BSSID octets 0..3 (station role). | Observed |
-| 0x0040 | BSSID_HIGH | BSSID octets 4..5. | Observed |
-| 0x0044 | BSSID_MODE | `0x301` for a station (mode 3), `0x101` for AP/IBSS (mode 1). The vendor passes mode 3 for a station; with mode 1 the MAC answers the AP's A-MPDUs from an unused receive BlockAck pipe. AP role clears this register to 0 (own address only). | Observed |
-| 0x0048 | SECOND_ADDR_LOW | Second copy of the own address, for the second interface slot. | Observed |
-| 0x004c | SECOND_ADDR_HIGH | As above. | Observed |
-| 0x0050 | SECOND_ADDR_MODE | `0x101`. | Observed |
-| 0x0060 + n*0x0c | MATCH_ENTRY[n] | Four entries initialised to `len = 0xffff_ffff`, `+4 = 0xff`, `+8 = 0xff` (disabled). | Observed |
+{% include register-rows.html data=site.data.mac prefix="mac" section="match" %}
 
-## Mode, filter and beacon control
-{:#s8-2}
+### Match mode words {#match-mode}
 
-| Offset | Name | Observed programming | Conf. |
-| --- | --- | --- | --- |
-| 0x0200 | MODE | Main MAC mode word. Scan path: `0x07f3_bd5e`. Joined station: built from `0x07e3_b85c` OR per-active-record path masks (`0x0008_0281` or `0x0010_0502`) plus `0x4000` per record in mode 2. | Inferred |
-| 0x0204 | FILTER | Scan path `0x0019_8000`; joined station `0x0279_fe00`. The scan value excludes received compressed BlockAck frames from packet DMA even though the AP transmits them and TX status completes, which is why the joined path must use the `mac_program_mode_regs` value. | Observed |
-| 0x0210 + n*4 | CONTROL_WORDS | 23 words cleared during startup. | Observed |
-| 0x0270 | SECOND_PATH | `0x0100_0000` or `1 << 26` depending on the second active record's path selector. | Observed |
-| 0x0308 | RECEIVE_SETUP_308 | `0x70`. | Observed |
-| 0x0310 | TIMING_310 | `0x7800_0000` in both scan and joined modes. | Observed |
-| 0x0314 | SECOND_PATH_ENABLE | `0x0100_0000` when a second active record shares the channel, else 0. | Observed |
-| 0x02ec | RECEIVE_SETUP_2EC | `4`. | Observed |
-| 0x0800 | RATE_RAM_BASE | MAC packet offset of the rate RAM object. Reprogrammed after every channel change. | Observed |
-| 0x080c | PACKET_DMA_CFG | Cleared during packet-DMA preparation; semantics not recovered. | Hypothesis |
+{% include registers/MatchMode.md %}
 
-## Response engine: pointers, slots and beacons
-{:#s8-3}
+## Mode and filter
 
-The response engine sends descriptors that firmware places in packet RAM, addressed through a 32-entry pointer table. Slot numbering is fixed by the vendor (table below) and each slot is enabled by a bit in the pipe-enable bitmaps.
+{% include register-rows.html data=site.data.mac prefix="mac" section="mode" %}
 
-| Offset | Name | Description | Conf. |
-| --- | --- | --- | --- |
-| 0x0a00 | BEACON_CONTROL | `0x1030_0000` idle; `0x1030_0001` arms the beacon descriptor in pointer slot 0. | Observed |
-| 0x0a04 | BEACON_SELECTOR | Also the response-slot enable bitmap. Scan `0x0018_0180`, joined station `0x0018_0783`. Bit `n` enables response slot `n+2`. | Observed |
-| 0x0a08 | RESPONSE_BITMAP_SET | OR in bit `n` to mark slot `n+2` as having a programmed response. Keeping the programmed slots set is *required* for the MAC to recognise their response path. | Observed |
-| 0x0a0c | RESPONSE_BITMAP_CLEAR | AND-mask; bits cleared here disable the slot's alternate path. | Observed |
-| 0x0a10 | RESPONSE_COUNT | 24-bit count per slot, AND-masked to `0x00ff_ffff`. | Observed |
-| 0x0a14 | SLOT_FIELD_LOW | Cleared for slots 2..0x11 after programming. | Observed |
-| 0x0a18 | SLOT_FIELD_HIGH | Cleared for slots above 0x11. | Observed |
-| 0x0a1c | RESPONSE_MASK | `0x827b_ffdf`. | Observed |
-| 0x0a20 | MAC_EVENT_FIFO | Pop one 32-bit event word. The first pop after an event line is unconditional. | Observed |
-| 0x0a24 | EVENT_READINESS | Reads negative (bit 31) while more events are queued. This bit gates the remaining pops. | Observed |
-| 0x0a28 | RADIO_STOP | Cleared in the RX-stop path. | Inferred |
-| 0x0c00 | RESPONSE_POINTER_BASE | Packet offset of the 32-entry response pointer table. | Observed |
-| 0x0e08 | TBTT | Low 24 bits of the target beacon transmission time, with bit 30 select. `0` disarms. | Observed |
-| 0x0e30 | SLOT_BASE_REG | `base * 8 - 1`. | Observed |
-| 0x0e34 | TSF_CONTROL | Written `0` then `3` (a `0 → 3` edge; writing 3 directly is not equivalent if the register has sticky semantics). IRQ 26 handler clears `0x1f00_0003`. | Observed |
-| 0x0e38 | TSF_LOW | Low 32 bits of the 64-bit microsecond TSF. | Observed |
-| 0x0e3c | TSF_HIGH | High 32 bits. Read high, low, high again and retry on change. | Observed |
-| 0x0e58 | SLOT_X16 | `base * 16 + 2`. | Observed |
-| 0x0e5c | SLOT_X24 | `base * 24 + 2`. | Observed |
-| 0x0e60 | PIPE_COUNT | `2`. | Observed |
-| 0x0e64 | EDCA_AIFS | Packed AIFS values for the active record. Only written while the MAC is quiescent. | Observed |
-| 0x0e70 + pipe*4 | PIPE_QUANTUM[pipe] | TX quantum, written as `(quantum + 0x1f) >> 5`. | Observed |
-| 0x0e84 | PIPE_IRQ_PENDING | Scheduler word: low bits select the pipe to serve, nibbles 4..7 and 12..15 select service phases. Written with per-pipe ones-complements to acknowledge. | Observed |
-| 0x0e80 | PIPE_CFG_80 | `0x100`. | Observed |
-| 0x0e88 | PIPE_CFG_88 | `0xff`. | Observed |
-| 0x0e8c | COMMAND_FETCH | `0xbf` enables the command-fetch engine. Must only be written while the MAC is quiescent: cycling it under a running fetch engine disturbs fetch state even though the final value is identical. | Inferred |
-| 0x0e94 | BEACON_AIRTIME | Airtime of a 24-octet frame at the beacon rate, with a small per-configuration adjustment. | Observed |
-| 0x0e98 | PIPE_IRQ_TRIGGER | Writing `(1 << pipe) << 25` signals the MAC that firmware serviced the pipe. | Observed |
-| 0x0e00 | TIMING_BLOCK | `0x4f00_004f` then `0x0909_0000`, then offsets `0x08..0x2c` cleared. | Observed |
-| 0x1400..0x1410 | DEBUG_CONTEXT | Saved/restored register context: `+0x04`, `+0x08`, `+0x0c = 0x7ff`, `+0x10`, and the base at `+0x00` written *last*. | Observed |
+<div class="warning" markdown="1">
+**The scan filter drops BlockAcks.** With the scan value in `FILTER`, packet DMA never delivers received compressed BlockAck frames, even though the AP sends them and TX status completes. A joined station must switch to the joined value.
+</div>
 
-### Response pointer slot assignment
+### MODE
 
-| Slot | Descriptor | Slot | Descriptor |
-| --- | --- | --- | --- |
-| 0 | Beacon (pointer to response command 3) | 2, 3 | Immediate ACK, interface 0 / 1 |
-| 4, 5 | ACK response descriptors, interface 0 / 1 | 6, 7 | CTS response descriptors, interface 0 / 1 |
-| 8 | Idle descriptor used as the default pointer | 0x0b, 0x0c | BlockAck response slot, interface 0 / 1 |
-| 9 + n | CTS-to-self, interface *n* | 0x15 + n | ACK, interface *n* |
-| 0x10 | Idle descriptor installed when beaconing starts | 0x1b, 0x1c | Alias slots mapped to logical 30 / 31 |
+{% include registers/MacMode.md %}
 
-Pointers are published as MAC packet offsets (23-bit form). The slot's enable bit and its `+0x0a08` bitmap entry must be programmed together; clearing the bitmap entry makes the MAC send the descriptor from a different, unused pipe.
+## Packet DMA and rate RAM
 
-## EDCA and slot timing block
-{:#s8-4}
+{% include register-rows.html data=site.data.mac prefix="mac" section="dma" %}
 
-`program_slot_timings()` writes a fixed group derived from the interface's slot-time base. Values are exact from the vendor path:
+## Response engine
 
-| Offset | Value | Offset | Value |
-| --- | --- | --- | --- |
-| 0x0618 | 0x0000_004d | 0x0614 | 0x0000_01cd |
-| 0x0428 | 0x0000_049d | 0x042c | 0x0000_049d |
-| 0x0444 | 0x0000_0258 | 0x0434 | 0x0000_003d |
-| 0x0438 | 0x0000_003d | 0x0448 | 0x0000_0258 |
-| 0x043c | 0x0000_0298 | 0x0440 | 0x0000_0298 |
-| 0x044c | 0x0000_0134 | 0x0810 | 0 |
+The response engine sends descriptors that the firmware builds in packet RAM: beacons, ACK, CTS and BlockAck. It finds them through a table of 32 pointers.
 
-A joined station also restores a 9 µs slot-time base after a synthetic scan transition; the scan record's timing word is zero in the open runtime.
+{% include register-rows.html data=site.data.mac prefix="mac" section="response" %}
+
+### Response commands
+
+The descriptors the pointer slots point at are response commands in packet RAM. Like a transmit slot they start with three header words, then a command stream ([opcodes](rings.html#opcodes)). Times are in microseconds; *base* is the slot-time base and *const* the slot-time constant.
+
+| Command | `+0x00` | `+0x04` | `+0x08` |
+|---|---|---|---|
+| Beacon (3) | <code>gap &#124; gap &lt;&lt; 16 &#124; 0xe000_e000</code>, gap = (16 × *base* + *const*) & `0x1fff` | `0xbc01_0000`: a fixed backoff | `0x5800_0000` |
+| ACK, CTS (4–7) | <code>const &lt;&lt; 16 &#124; 0x2000_0000</code> | 0 | `0x5800_0000` |
+| BlockAck (11, 12) | <code>const &lt;&lt; 16 &#124; 0x2000_0000</code> | 0 | `0x5800_0000` |
+| Idle and TBTT (0–8, 11, 12 at start-up) | <code>n &#124; n &lt;&lt; 16 &#124; 0x2000_0000</code>, n = (*const* + 8 × *base*) & `0x1fff` | `0xdc01` in bits 31:16; the low half is not written | `0x8000_0000` |
+{: .compact .nowrap-last}
+
+The beacon's stream:
+
+```text
+0x51 rate word
+0x50 PHY control
+0x52 rate attribute, length + 4
+0x32 frame control
+0x32 0                         duration
+0x29 header address
+0x21 sequence word
+0x0700_8400                    insert the timestamp
+0x40 address of byte 32, length word
+0x0700_4600
+0xf000_0000
+```
+
+The ACK and CTS templates, from `+0x0c`:
+
+```text
+0x5900_0000
+0x5800_0003
+0x5a00_000e
+0x3100_00d4 (ACK)  or  0x3100_00c4 (CTS)
+0x4700_0000
+0x20 interface metadata byte
+0x0700_2008 (ACK)  or  0x0700_2004 (CTS)
+0x0700_6828
+0x0700_4600
+0xf000_0000
+```
+
+The BlockAck template, from `+0x0c`:
+
+```text
+0x5900_0000
+0x5800_0003
+0x5a00_0020
+0x3100_0094
+0x4700_0000
+0x20 interface metadata byte
+0x3200_0000
+0x6900_0000
+0x0700_6820
+0x6800_0000
+0x6000_0000
+0x0700_4600
+0xf000_0000
+```
+
+### Response slot bitmaps
+
+{% include registers/ResponseSlots.md %}
+
+### BEACON_CONTROL
+
+{% include registers/BeaconControl.md %}
+
+### Pointer slots
+
+Every slot starts pointing at response command 8, the idle descriptor; slots not listed keep it. The firmware installs:
+
+| Slot | Response command | Descriptor |
+|---|---|---|
+| 0 | 3 | Beacon, while armed |
+| 2, 3 | 11, 12 | BlockAck, interface 0 and 1 |
+| 9, 10 | 6, 7 | CTS, interface 0 and 1 |
+| 11, 12 | 11, 12 | BlockAck, interface 0 and 1 |
+| 16 | 8 | Idle descriptor, installed when beaconing starts so that its bitmap bits are set |
+| 21, 22 | 4, 5 | ACK, interface 0 and 1 |
+{: .compact}
+
+Pointers hold MAC packet offsets. Four things set the slots up:
+
+- **Installing a pointer** in slot *n*, for slots 2 to 26, sets bit *n* − 2 in `RESPONSE_BITMAP_SET` and `RESPONSE_BITMAP_CLEAR` and clears it in `RESPONSE_STATE`. Slot 0 is written directly when the beacon is armed or disarmed; slots 27 and 28 are never installed.
+- **Configuring a BlockAck slot** sets its bit in `RESPONSE_BITMAP_SET`, clears it in `RESPONSE_BITMAP_CLEAR` and `RESPONSE_STATE`, and writes 0 to `SLOT_FIELD_LOW` (slots up to 17) or `SLOT_FIELD_HIGH`. The order differs: slots 2 and 3 are configured, then installed, which sets their `RESPONSE_BITMAP_CLEAR` bit again; slots 11 and 12 are installed, then configured, which leaves it clear. Each is then ORed into `RESPONSE_ENABLE`.
+- **The mode writes** set `RESPONSE_ENABLE` whole: the joined value enables the BlockAck, CTS and ACK slots, the scan value the CTS and ACK slots.
+- **The beacon**, slot 0, is armed through `BEACON_CONTROL` and `BEACON_TIMER`, not through these bitmaps.
+
+If a slot's `RESPONSE_BITMAP_SET` bit is clear, the MAC sends its descriptor from another pipe, which the peer does not expect.
+
+## Event FIFO
+
+The MAC reports transmit progress, received frames and pipe service requests as 32-bit words in an event FIFO. Its event line is the CPU's [FIQ](interrupts.html#the-fiq-line); the main loop drains the FIFO. The firmware drains the FIFO only while `EVENT_READINESS` bit 31 is clear: it pops one event, then keeps popping until the bit sets.
+
+{% include register-rows.html data=site.data.mac prefix="mac" section="events" %}
+
+### Event word
+
+{% include registers/MacEventWord.md %}
+
+### EVENT_READINESS
+
+{% include registers/EventReadiness.md %}
+
+## TSF and beacon timing
+
+{% include register-rows.html data=site.data.mac prefix="mac" section="tsf" %}
+
+### BEACON_TIMER
+
+{% include registers/BeaconTimer.md %}
+
+## Slot timing and EDCA
+
+The firmware writes these together, with `SLOT_TIMING_614`, `SLOT_TIMING_618` and `SLOT_TIMING_810` listed under [packet DMA](#packet-dma-and-rate-ram). `SLOT_BASE`, `SLOT_X16` and `SLOT_X24` derive from the interface's slot-time base, 9 µs for a joined station; the others are constants.
+
+{% include register-rows.html data=site.data.mac prefix="mac" section="slot" %}
+
+## TX pipe scheduler
+
+{% include register-rows.html data=site.data.mac prefix="mac" section="scheduler" %}
+
+### PIPE_SCHEDULER
+
+{% include registers/PipeScheduler.md %}
+
+### PIPE_TRIGGER
+
+{% include registers/PipeTrigger.md %}
+
+## Control and debug
+
+{% include register-rows.html data=site.data.mac prefix="mac" section="control" %}
+
+## Receive register image
+
+At start-up the firmware writes this fixed image, in this order, to configure reception; the functions of these words are unknown. It includes the 23 `TIMING` words from `+0x0210`. Two of them, `0x0400_0004` at `+0x0230` and `0x0400_0000` at `+0x0260`, look like DTCM addresses but are probably timing values <span class="tag inferred">inferred</span>: [other values slow association](measurements.html#image-loading-and-timing).
+
+<details markdown="1">
+<summary>Show the 75 writes</summary>
+
+{% include registers/MacReceiveImage.md %}
+
+</details>
