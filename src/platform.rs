@@ -38,8 +38,10 @@ register_structs! {
     }
 }
 
+const RX_DMA_OFFSET: usize = 0x0600;
+
 pub(crate) fn rx_dma() -> &'static RxDma {
-    unsafe { &*(mac_register(0x0600) as *const RxDma) }
+    unsafe { &*(mac_register(RX_DMA_OFFSET) as *const RxDma) }
 }
 
 register_structs! {

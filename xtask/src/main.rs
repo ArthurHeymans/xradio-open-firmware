@@ -1,3 +1,4 @@
+mod docs;
 mod image;
 #[cfg(test)]
 mod image_tests;
@@ -35,13 +36,19 @@ fn build(root: &Path, target_dir: &Path, target: &str, bin: &str) -> Result<Path
 fn main() -> Result<()> {
     let mut args = env::args_os().skip(1);
     let command = args.next();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
     let check = match command.as_ref().and_then(|c| c.to_str()) {
+        Some("docs") => {
+            ensure!(args.len() == 0, "docs takes no arguments");
+            return docs::generate(root);
+        }
         Some("image") => false,
         Some("check") => true,
-        _ => anyhow::bail!("usage: cargo xtask image [output-directory] | cargo xtask check"),
+        _ => anyhow::bail!(
+            "usage: cargo xtask image [output-directory] | cargo xtask check | cargo xtask docs"
+        ),
     };
     ensure!(!check || args.len() == 0, "check takes no arguments");
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
     let target = env::current_dir()?.join(
         env::var_os("CARGO_TARGET_DIR")
             .map(PathBuf::from)

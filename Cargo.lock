@@ -365,6 +365,7 @@ dependencies = [
  "anyhow",
  "object",
  "rustc-demangle",
+ "syn 2.0.119",
  "unarm",
 ]
 

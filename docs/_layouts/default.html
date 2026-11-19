@@ -1,22 +1,8 @@
 <!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ page.title | default: site.title | escape }} · XRadio firmware</title>
-<style>
-:root { color-scheme: light dark; }
-body { max-width: 48rem; margin: auto; padding: 1rem; font: 1rem/1.6 system-ui, sans-serif; }
-nav { display: flex; justify-content: space-between; border-bottom: 1px solid GrayText; padding: .5rem 0; }
-h1, h2, h3 { line-height: 1.2; }
-pre, table { display: block; overflow-x: auto; }
-code { overflow-wrap: anywhere; }
-pre { padding: .75rem; border-inline-start: .2rem solid GrayText; }
-table { border-collapse: collapse; } th, td { padding: .35rem .6rem; border-bottom: 1px solid GrayText; text-align: left; }
-</style>
-</head>
-<body>
-<nav aria-label="Site"><a href="{{ '/' | relative_url }}">XR819 documentation</a><a href="https://github.com/ArthurHeymans/xradio-open-firmware">Source</a></nav>
-<main>{{ content }}</main>
-</body>
-</html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark"><title>{{ page.title | default: 'Documentation' | escape }} · XRadio</title><link rel="stylesheet" href="{{ '/assets/manual.css' | relative_url }}"></head>
+<body><a class="skip" href="#content">Skip to content</a><header><div class="bar"><a class="brand" href="{{ '/' | relative_url }}"><span aria-hidden="true">◒</span> XRadio <small>field manual</small></a><a href="https://github.com/ArthurHeymans/xradio-open-firmware">Source ↗</a></div></header>
+<div class="shell"><aside><nav aria-label="Manual contents">
+{% assign here = page.url %}{% if here == '/reference/' %}{% assign here = '/reference/index.html' %}{% endif %}
+{% for group in site.data.navigation %}{% assign current = false %}{% for item in group.pages %}{% if here == item[1] %}{% assign current = true %}{% endif %}{% endfor %}
+<details {% if current %}open{% endif %}><summary>{{ group.title }}</summary><ul>{% for item in group.pages %}<li><a {% if here == item[1] %}aria-current="page"{% endif %} href="{{ item[1] | relative_url }}">{{ item[0] }}</a></li>{% endfor %}</ul></details>{% endfor %}</nav></aside>
+<main id="content"><p class="eyebrow">XR819 &nbsp;/&nbsp; {{ page.section | default: 'Firmware manual' | escape }}</p>{{ content }}<footer><a href="https://github.com/ArthurHeymans/xradio-open-firmware/blob/main/docs/{{ page.path | escape }}">Page source ↗</a></footer></main></div></body></html>

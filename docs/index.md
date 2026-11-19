@@ -1,23 +1,18 @@
 ---
-layout: default
-title: XR819 documentation
+title: XR819 firmware manual
 ---
-# XR819 documentation
+# XR819 firmware manual
 
-[Using the firmware with Linux](linux-driver.html) covers the `cw1200` driver, the two firmware images, and the calibration file supplied with the board.
+The XR819 runs the radio on an Orange Pi Zero. Linux talks to it over SDIO; the firmware on the chip manages packet memory, queues transmissions, and handles the MAC and PHY.
 
-## Hardware reference
+## [Use the firmware](linux-driver.html)
 
-- [Register map](xr819-hardware-reference.html#map): addresses, register fields, and the order in which the firmware programs them.
-- [Packet RAM](packet-ram-address-contract.html): how CPU pointers differ from the addresses the MAC and DMA engines use.
-- [Interrupts and sleep](interrupts-and-sleep.html): which events wake the radio and how the main loop waits for them.
+Build the bootloader and runtime, find the Linux driver, and keep the calibration file that belongs to your board.
 
-## Firmware images
+## [Hardware reference](reference/index.html)
 
-- [Image format](vendor-container-layout.html): the XR01 copy, fill and entry records.
-- [Initialization data](init-data.html): the four PHY tables and the engine initialization payload, with their source offsets and hashes.
+Start from a CPU address, or follow a packet through the [host interface](reference/hif.html), [transmit rings](reference/rings.html), and [radio](reference/phy.html). Register layouts come from Rust; the [reading guide](reference/guide.html) distinguishes those layouts from measurements and inferred behavior.
 
-## Test notes
+## [Lab notes](lab.html)
 
-- [Orange Pi Zero](orange-pi-zero-smoke.html): tested driver and firmware revisions, station and AP traffic, and SDIO rebind results.
-- [Stack usage](stack-check.html): what the static check measures and where its estimates stop.
+Look up the driver and image used in a board run, compare an observation with the reference, or find a question that still needs a measurement.

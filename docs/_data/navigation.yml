@@ -1,0 +1,51 @@
+- title: Use the firmware
+  url: /linux-driver.html
+  pages:
+    - [Linux driver and images, /linux-driver.html]
+    - [Initialization data, /init-data.html]
+    - [Container format, /vendor-container-layout.html]
+- title: Hardware reference
+  url: /reference/index.html
+  pages:
+    - [Address map, /reference/index.html]
+    - [Reading the evidence, /reference/guide.html]
+    - [System control, /reference/system.html]
+    - [Clocks and reset, /reference/clock.html]
+    - [Timers, /reference/timers.html]
+    - [Platform control, /reference/platform.html]
+    - [Interrupt controller, /reference/interrupts.html]
+    - [Host interface, /reference/hif.html]
+    - [Receive DMA and FIFO, /reference/rx-dma.html]
+    - [MAC registers, /reference/mac.html]
+    - [MAC access inventory, /reference/mac-access.html]
+    - [Transmit rings, /reference/rings.html]
+    - [AES and CCMP, /reference/aes.html]
+    - [PHY and RF, /reference/phy.html]
+    - [Address encodings, /reference/addresses.html]
+    - [Packet RAM ownership, /packet-ram-address-contract.html]
+    - [WSM messages, /reference/wsm.html]
+- title: Operating sequences
+  url: /reference/flows.html
+  pages:
+    - [Flow index, /reference/flows.html]
+    - [Boot and download, /reference/boot.html]
+    - [Platform bring-up, /reference/bringup.html]
+    - [Starting packet DMA, /reference/bringup-dma.html]
+    - [Host activation, /reference/hif-flow.html]
+    - [Receive path, /reference/rx.html]
+    - [Transmit path, /reference/tx.html]
+    - [Aggregation, /reference/ampdu.html]
+    - [CCMP transfer, /reference/ccmp.html]
+    - [Sleep and wake, /reference/sleep.html]
+    - [Programming sequences, /reference/sequences.html]
+- title: Lab notes
+  url: /lab.html
+  pages:
+    - [Lab notebook, /lab.html]
+    - [Orange Pi Zero runs, /orange-pi-zero-smoke.html]
+    - [Measured behavior, /reference/measurements.html]
+    - [Interrupt and sleep trials, /interrupts-and-sleep.html]
+    - [Stack analysis, /stack-check.html]
+    - [Open questions, /reference/unknowns.html]
+    - [Evidence index, /reference/sources.html]
+    - [Editing the reference, /contributing-docs.html]
