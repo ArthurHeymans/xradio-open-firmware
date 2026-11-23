@@ -134,6 +134,7 @@ pub(crate) fn rearm_single_frame(live: LiveTxSlot, pending_mask: u32) {
     build_single_frame_duration(mmio, descriptor.raw(), context, true);
     let descriptor_flags = mmio.read(descriptor.flags()) | u32::from(status).wrapping_add(0x80);
     mmio.write(descriptor.flags(), descriptor_flags);
+    crate::cpu::drain_write_buffer();
 
     mmio.write(PIPE_IRQ_TRIGGER, (1_u32 << pipe_index) << 25);
 
@@ -152,6 +153,7 @@ pub(crate) fn rearm_single_frame(live: LiveTxSlot, pending_mask: u32) {
         // a response before clearing the command ownership bit.
         let descriptor_flags = mmio.read(descriptor.flags()) | u32::from(status).wrapping_add(0x80);
         mmio.write(descriptor.flags(), descriptor_flags);
+        crate::cpu::drain_write_buffer();
     }
     let command_mask = mmio.read(ring.cursor_and_pending_mask());
     mmio.write(
@@ -243,6 +245,7 @@ fn give_up_protected_pair(live: LiveTxSlot, pending_mask: u32) {
     pipe.apply_cursor(OrdinaryTxPipeCursorPlan::Recycle {
         next_head: (pipe.last.get() + 1) & 3,
     });
+    pipes.busy.set(false);
     Mmio.write(
         PIPE_IRQ_PENDING,
         0_u32.wrapping_sub(pending_mask.wrapping_add(0x10)),
@@ -276,6 +279,7 @@ pub(crate) fn service_tx_retry(backend: &mut SingleProbeMacBackend, owned_mask: 
     pipes.busy.set(true);
 
     if pipe.state.get() != 1 {
+        pipes.busy.set(false);
         mmio.write(ring.inactive_sentinel(), PIPE_RETRY_INACTIVE_SENTINEL);
         mmio.write(
             PIPE_IRQ_PENDING,
@@ -317,6 +321,13 @@ pub(crate) fn service_tx_retry(backend: &mut SingleProbeMacBackend, owned_mask: 
             );
         }
         decision
+    } else if is_aggregate_slot(pipe_index, current) {
+        // An aggregate slot cannot be rebuilt at a stepped-down rate in place,
+        // and mutating only member 0's tx_rate/try_count desyncs it from the
+        // rest of the A-MPDU. Complete the slot as failed so `aggregate::resolve`
+        // requeues every member uniformly for one more aggregate attempt and
+        // then single-frame rate-policy fallback.
+        SingleTxRetryDecision::GiveUp
     } else {
         backend.decide_retry(pipe_index, current, live.context)
     };
@@ -343,6 +354,7 @@ pub(crate) fn service_tx_retry(backend: &mut SingleProbeMacBackend, owned_mask: 
             if current == last {
                 pipe.disarm();
             }
+            pipes.busy.set(false);
             mmio.write(
                 PIPE_IRQ_PENDING,
                 0_u32.wrapping_sub(owned_mask.wrapping_add(0x10)),

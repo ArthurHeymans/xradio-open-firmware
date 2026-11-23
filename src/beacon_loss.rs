@@ -69,6 +69,10 @@ impl BeaconMonitor {
         self.limit_us = (count != 0 && self.interval_us != 0).then(|| {
             i32::try_from(self.interval_us.saturating_mul(u32::from(count))).unwrap_or(i32::MAX)
         });
+        if self.limit_us.is_none() {
+            self.lost = false;
+            self.unreported = None;
+        }
         self.last_beacon = now;
     }
 
@@ -185,6 +189,13 @@ mod tests {
         assert_eq!(monitor.unreported(), None);
         monitor.on_beacon(300 * TU);
         assert_eq!(monitor.unreported(), None);
+        // Disabling an active watch clears any unreported loss and wake deadline.
+        let mut monitor = watching(1);
+        monitor.poll(200 * TU);
+        assert_eq!(monitor.unreported(), Some(LinkEvent::Lost));
+        monitor.set_lost_count(0, 200 * TU);
+        assert_eq!(monitor.unreported(), None);
+        assert_eq!(monitor.wake_in(200 * TU), None);
     }
 
     #[test]

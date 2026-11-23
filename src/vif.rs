@@ -354,7 +354,7 @@ pub fn apply_edca(
         .wrapping_sub(0x111);
     pas.packed_aifs.set(aifs);
 
-    if low_mac.current_channel.get() == 0 && low_mac.edca_slot_timing.get() != aifs {
+    if low_mac.edca_slot_timing.get() != aifs {
         low_mac.edca_slot_timing.set(aifs);
         crate::mmio::MAC.write32(crate::platform::mac_register(0x0e64), aifs);
         reset_pas_backoff(interface)?;

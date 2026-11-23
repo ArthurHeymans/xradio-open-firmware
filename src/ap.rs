@@ -157,7 +157,7 @@ impl AccessPoint {
 
     /// Microseconds until [`Self::service`] has work.
     #[cfg(target_arch = "arm")]
-    pub fn wake_in(&self) -> Option<u32> {
+    pub fn wake_in(&self, has_beacon_template: bool) -> Option<u32> {
         let bss = self
             .bss
             .as_ref()
@@ -165,7 +165,10 @@ impl AccessPoint {
         let tsf = crate::mac::tsf();
         let due = match bss.armed {
             Some((tbtt, ..)) => tbtt + EVENT_TIMEOUT_US,
-            None => next_tbtt(tsf, bss.interval_us).saturating_sub(PREPARE_US),
+            None if has_beacon_template => {
+                next_tbtt(tsf, bss.interval_us).saturating_sub(PREPARE_US)
+            }
+            None => return None,
         };
         Some(due.saturating_sub(tsf).min(u64::from(u32::MAX)) as u32)
     }
@@ -178,6 +181,9 @@ impl Bss {
                 self.multicast_start_owed |= multicast;
             } else if tsf < tbtt + EVENT_TIMEOUT_US {
                 return None;
+            } else {
+                #[cfg(target_arch = "arm")]
+                crate::mac::disarm_beacon();
             }
             self.armed = None;
         }

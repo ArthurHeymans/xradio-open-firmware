@@ -60,34 +60,55 @@ pub struct HostClass0Completion {
     pub pipe: u8,
     pub slot: u8,
     pub status: u16,
+    pub tx_rate: u8,
     pub ack_failures: u8,
 }
 
-/// One service pass can retire the configured ordinary batch depth on each of
-/// four MAC pipes before the host driver starts draining copied identities.
-pub(crate) const HOST_CLASS0_COMPLETION_CAPACITY: usize = 4 * crate::tx::MAX_ORDINARY_BATCH_DEPTH;
+/// Capacity for all 30 host contexts completing in a single drain pass
+/// (e.g. multiple A-MPDUs plus single-frame batches), rounded to power of 2.
+pub(crate) const HOST_CLASS0_COMPLETION_CAPACITY: usize = 32;
 
 pub(crate) struct BoundedCompletionQueue<T, const N: usize> {
     pub(crate) entries: [Option<T>; N],
+    head: usize,
+    tail: usize,
+    len: usize,
 }
 
 impl<T, const N: usize> BoundedCompletionQueue<T, N> {
     pub(crate) const fn new() -> Self {
         Self {
             entries: [const { None }; N],
+            head: 0,
+            tail: 0,
+            len: 0,
         }
     }
 
     pub(crate) fn push(&mut self, value: T) -> Result<(), T> {
-        let Some(entry) = self.entries.iter_mut().find(|entry| entry.is_none()) else {
+        if self.len == N {
             return Err(value);
-        };
-        *entry = Some(value);
+        }
+        self.entries[self.tail] = Some(value);
+        self.tail += 1;
+        if self.tail == N {
+            self.tail = 0;
+        }
+        self.len += 1;
         Ok(())
     }
 
     pub(crate) fn take(&mut self) -> Option<T> {
-        self.entries.iter_mut().find_map(Option::take)
+        if self.len == 0 {
+            return None;
+        }
+        let value = self.entries[self.head].take();
+        self.head += 1;
+        if self.head == N {
+            self.head = 0;
+        }
+        self.len -= 1;
+        value
     }
 }
 
@@ -251,11 +272,20 @@ impl SingleProbeMacBackend {
     /// Final context completion: run the class callback, return internal
     /// contexts to their pool and queue the completion for its owner.
     pub(crate) fn complete_context(&mut self, context: ContextId, status: u16) {
+        let tx_rate = context.get().tx_rate.get();
         if !dispatch_completed_context(context, status) {
             terminal_probe_backend_fault(0);
         }
         let aggregate_slot = context.get().aggregate_slot.replace(NO_AGGREGATE);
-        let Some((index, publication)) =
+        let found = if aggregate_slot != NO_AGGREGATE {
+            let index = usize::from(aggregate_slot);
+            self.publications
+                .get(index)
+                .copied()
+                .flatten()
+                .filter(|publication| publication.context == context)
+                .map(|publication| (index, publication))
+        } else {
             self.publications
                 .iter()
                 .enumerate()
@@ -264,7 +294,8 @@ impl SingleProbeMacBackend {
                         .filter(|publication| publication.context == context)
                         .map(|publication| (index, publication))
                 })
-        else {
+        };
+        let Some((index, publication)) = found else {
             // Aggregate members after the first share the first's slot and
             // publication.
             if aggregate_slot == NO_AGGREGATE {
@@ -276,6 +307,7 @@ impl SingleProbeMacBackend {
                 pipe,
                 slot,
                 status,
+                tx_rate,
                 ack_failures: context.get().try_count.get().min(u16::from(u8::MAX)) as u8,
             });
             return;
@@ -291,6 +323,7 @@ impl SingleProbeMacBackend {
             pipe: publication.pipe,
             slot: publication.slot,
             status,
+            tx_rate,
             ack_failures,
         });
     }

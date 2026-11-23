@@ -205,6 +205,11 @@ fn channel_control_matches_vendor_scan_mode() {
     ];
     assert_eq!(select_channel_calibration(2, true, 100, &steps), Some(108));
     assert_eq!(select_channel_calibration(6, false, 100, &steps), Some(116));
+    assert_eq!(select_channel_calibration(8, true, 100, &steps), Some(120));
+    assert_eq!(
+        select_channel_calibration(11, false, 100, &steps),
+        Some(128)
+    );
     assert_eq!(
         primary_iq_calibration(IqCalibrationSample {
             baseline_i: 10,
@@ -789,4 +794,33 @@ fn mode0_rate_table_matches_vendor_generation() {
     assert_eq!(table[62], 0x0219_0219);
     assert_eq!(table[79], 0x001a_001a);
     assert_eq!(rate_table_boundary(&table), 55);
+}
+
+#[test]
+fn channel_tx_power_selects_both_columns_and_high_channels() {
+    let mut sdd = crate::configuration::SddCalibration::ZERO;
+    sdd.profiles[0].channel_count = 2;
+    sdd.profiles[0].channel_records[0] = [3, 10, 20];
+    sdd.profiles[0].channel_records[1] = [8, 30, 40];
+    let base = i32::from(state().threshold.get());
+    assert_eq!(
+        channel_tx_power_from_sdd(&sdd, 3, false),
+        base.wrapping_add(10 * 4) as i16
+    );
+    assert_eq!(
+        channel_tx_power_from_sdd(&sdd, 3, true),
+        base.wrapping_add(20 * 4) as i16
+    );
+    assert_eq!(
+        channel_tx_power_from_sdd(&sdd, 6, true),
+        base.wrapping_add(20 * 4) as i16
+    );
+    assert_eq!(
+        channel_tx_power_from_sdd(&sdd, 11, false),
+        base.wrapping_add(30 * 4) as i16
+    );
+    assert_eq!(
+        channel_tx_power_from_sdd(&sdd, 11, true),
+        base.wrapping_add(40 * 4) as i16
+    );
 }

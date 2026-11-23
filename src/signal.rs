@@ -122,6 +122,13 @@ impl SignalMonitor {
                 self.side = Side::Unknown;
                 return;
             }
+            // Only the upper threshold: report going above it once, and
+            // rearm silently once back at or below it.
+            DONT_USE_LOWER if average > upper && self.side == Side::Unknown => Side::Above,
+            DONT_USE_LOWER if average <= upper && self.side == Side::Above => {
+                self.side = Side::Unknown;
+                return;
+            }
             _ => return,
         };
         self.side = side;

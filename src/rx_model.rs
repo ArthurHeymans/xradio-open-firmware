@@ -46,13 +46,25 @@ pub(crate) enum ReleaseAction {
     },
 }
 
+const MAX_DEFERRED_RESYNCS: usize = 8;
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct ResyncGap {
+    stop_at: u32,
+    jump_to: u32,
+}
+
 /// Software ownership state for the RX ring.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct RxRing {
     release_offset: u32,
     claim_offset: u32,
     host_transfer_count: u32,
-    resync_release_deferred: bool,
+    live_tokens: u32,
+    resync_gaps: [ResyncGap; MAX_DEFERRED_RESYNCS],
+    resync_head: u8,
+    resync_len: u8,
+    resync_overflow: bool,
 }
 
 impl RxRing {
@@ -61,8 +73,19 @@ impl RxRing {
             release_offset: 0,
             claim_offset: 0,
             host_transfer_count: 0,
-            resync_release_deferred: false,
+            live_tokens: 0,
+            resync_gaps: [ResyncGap {
+                stop_at: 0,
+                jump_to: 0,
+            }; MAX_DEFERRED_RESYNCS],
+            resync_head: 0,
+            resync_len: 0,
+            resync_overflow: false,
         }
+    }
+
+    const fn has_deferred_resync(&self) -> bool {
+        self.resync_len != 0 || self.resync_overflow
     }
 
     pub(crate) fn activity(
@@ -73,14 +96,18 @@ impl RxRing {
             .with(self.release_offset)
             .with(self.claim_offset)
             .with(self.host_transfer_count)
-            .with(u32::from(self.resync_release_deferred))
+            .with(self.live_tokens)
+            .with(u32::from(self.has_deferred_resync()))
     }
 
     pub(crate) fn synchronize(&mut self, offset: u32) {
         self.release_offset = offset;
         self.claim_offset = offset;
         self.host_transfer_count = 0;
-        self.resync_release_deferred = false;
+        self.live_tokens = 0;
+        self.resync_head = 0;
+        self.resync_len = 0;
+        self.resync_overflow = false;
     }
 
     pub(crate) const fn release_offset(&self) -> u32 {
@@ -95,6 +122,18 @@ impl RxRing {
         self.host_transfer_count
     }
 
+    pub(crate) const fn live_tokens(&self) -> u32 {
+        self.live_tokens
+    }
+
+    pub(crate) const fn sweep_limit(&self) -> u32 {
+        if self.resync_len != 0 {
+            self.resync_gaps[self.resync_head as usize].stop_at
+        } else {
+            self.claim_offset
+        }
+    }
+
     /// Claims the current ring head and advances to `next`.
     ///
     /// The caller cannot choose the token identity independently of the ring's
@@ -102,7 +141,12 @@ impl RxRing {
     pub(crate) fn claim(&mut self, next: u32) -> RxToken {
         let token = RxToken::new(self.claim_offset, next);
         self.claim_offset = next;
+        self.live_tokens += 1;
         token
+    }
+
+    pub(crate) fn record_token_released(&mut self) {
+        self.live_tokens = self.live_tokens.saturating_sub(1);
     }
 
     pub(crate) fn publish_host_transfer(&mut self, limit: u32) -> bool {
@@ -121,6 +165,7 @@ impl RxRing {
         true
     }
 
+    #[cfg(test)]
     pub(crate) fn set_claim_offset(&mut self, next: u32) {
         self.claim_offset = next;
     }
@@ -129,29 +174,64 @@ impl RxRing {
     /// that may be applied after the claim-cursor hardware write.
     pub(crate) fn resynchronize(&mut self, previous_claim: u32, target: u32) -> Option<u32> {
         self.claim_offset = target;
-        if self.host_transfer_count == 0 && self.release_offset == previous_claim {
-            self.resync_release_deferred = false;
-            Some(target)
-        } else {
-            self.resync_release_deferred = true;
-            None
+        if !self.has_deferred_resync()
+            && self.host_transfer_count == 0
+            && self.live_tokens == 0
+            && self.release_offset == previous_claim
+        {
+            return Some(target);
         }
+        if !self.resync_overflow {
+            let len = usize::from(self.resync_len);
+            if len > 0 {
+                let tail = (usize::from(self.resync_head) + len - 1) % MAX_DEFERRED_RESYNCS;
+                if self.resync_gaps[tail].jump_to == previous_claim {
+                    self.resync_gaps[tail].jump_to = target;
+                    return None;
+                }
+            }
+            if len < MAX_DEFERRED_RESYNCS {
+                let tail = (usize::from(self.resync_head) + len) % MAX_DEFERRED_RESYNCS;
+                self.resync_gaps[tail] = ResyncGap {
+                    stop_at: previous_claim,
+                    jump_to: target,
+                };
+                self.resync_len = (len + 1) as u8;
+                return None;
+            }
+            self.resync_overflow = true;
+        }
+        None
     }
 
     pub(crate) fn set_release_offset(&mut self, next: u32) {
         self.release_offset = next;
     }
 
-    /// Finishes a deferred resynchronization after the last host transfer is
-    /// returned. The caller performs the matching hardware-consumer write.
+    /// Finishes the next deferred resynchronization once the release sweep
+    /// reaches its `stop_at` boundary, or jumps directly to `claim_offset` if
+    /// all live tokens and host transfers have drained after a queue overflow.
+    /// The caller performs the matching hardware-consumer write and resumes
+    /// sweeping valid slots after the returned offset.
     pub(crate) fn finish_deferred_resync(&mut self) -> Option<u32> {
-        if self.resync_release_deferred && self.host_transfer_count == 0 {
-            self.release_offset = self.claim_offset;
-            self.resync_release_deferred = false;
-            Some(self.release_offset)
-        } else {
-            None
+        if self.resync_len != 0 {
+            let head = usize::from(self.resync_head);
+            let gap = self.resync_gaps[head];
+            if self.release_offset == gap.stop_at {
+                self.resync_head = ((head + 1) % MAX_DEFERRED_RESYNCS) as u8;
+                self.resync_len -= 1;
+                self.release_offset = gap.jump_to;
+                return Some(gap.jump_to);
+            }
         }
+        if self.has_deferred_resync() && self.live_tokens == 0 && self.host_transfer_count == 0 {
+            self.resync_head = 0;
+            self.resync_len = 0;
+            self.resync_overflow = false;
+            self.release_offset = self.claim_offset;
+            return Some(self.release_offset);
+        }
+        None
     }
 
     pub(crate) const fn classify_release(&self, token: &RxToken, state: u32) -> ReleaseAction {
@@ -265,5 +345,67 @@ mod tests {
             assert!(ring.complete_host_transfer());
         }
         assert!(!ring.complete_host_transfer());
+    }
+
+    #[test]
+    fn stacked_non_adjacent_resync_gaps_preserve_ordered_sweeps_across_wrap() {
+        let mut ring = RxRing::new();
+        ring.synchronize(0x7e00);
+
+        // Pre-gap reorder-owned slot: 0x7e00 -> 0x7f00.
+        let s0 = ring.claim(0x7f00);
+        // Gap 1 wraps across 0x8000: 0x7f00 -> 0x0100.
+        assert_eq!(ring.resynchronize(0x7f00, 0x0100), None);
+        assert_eq!(ring.sweep_limit(), 0x7f00);
+
+        // Interleaved host-owned slot between Gap 1 and Gap 2: 0x0100 -> 0x0200.
+        let s1 = ring.claim(0x0200);
+        assert!(ring.publish_host_transfer(24));
+        // Gap 2: 0x0200 -> 0x0380.
+        assert_eq!(ring.resynchronize(0x0200, 0x0380), None);
+        assert_eq!(ring.sweep_limit(), 0x7f00);
+
+        // Post-Gap-2 reorder-owned slot: 0x0380 -> 0x0480.
+        let s2 = ring.claim(0x0480);
+
+        // Out-of-order release: s2 and s1 finish before s0.
+        assert!(matches!(
+            ring.classify_release(&s2, 0),
+            ReleaseAction::MarkPending { .. }
+        ));
+        ring.record_token_released();
+        assert_eq!(ring.finish_deferred_resync(), None);
+
+        assert!(ring.complete_host_transfer());
+        assert!(matches!(
+            ring.classify_release(&s1, 0),
+            ReleaseAction::MarkPending { .. }
+        ));
+        ring.record_token_released();
+        assert_eq!(ring.finish_deferred_resync(), None);
+
+        // Now release head s0: sweep reaches Gap 1 stop_at (0x7f00) and jumps to 0x0100.
+        assert!(matches!(
+            ring.classify_release(&s0, 0),
+            ReleaseAction::ReleaseHead { .. }
+        ));
+        ring.record_token_released();
+        ring.set_release_offset(s0.next());
+        assert_eq!(ring.release_offset(), ring.sweep_limit());
+        assert_eq!(ring.finish_deferred_resync(), Some(0x0100));
+
+        // Sweep resumes at 0x0100 up to Gap 2 stop_at (0x0200), cleaning up s1!
+        assert_eq!(ring.release_offset(), 0x0100);
+        assert_eq!(ring.sweep_limit(), 0x0200);
+        ring.set_release_offset(s1.next());
+        assert_eq!(ring.release_offset(), ring.sweep_limit());
+        assert_eq!(ring.finish_deferred_resync(), Some(0x0380));
+
+        // Sweep resumes at 0x0380 up to claim_offset (0x0480), cleaning up s2!
+        assert_eq!(ring.release_offset(), 0x0380);
+        assert_eq!(ring.sweep_limit(), 0x0480);
+        ring.set_release_offset(s2.next());
+        assert_eq!(ring.release_offset(), 0x0480);
+        assert_eq!(ring.finish_deferred_resync(), None);
     }
 }

@@ -109,7 +109,9 @@ pub struct BlockAckRequest {
 impl BlockAckRequest {
     pub fn parse(frame: &[u8]) -> Option<&Self> {
         let (request, _) = Self::ref_from_prefix(frame).ok()?;
-        (request.header.frame_control.get() & TYPE_SUBTYPE == BLOCK_ACK_REQUEST).then_some(request)
+        (request.header.frame_control.get() & TYPE_SUBTYPE == BLOCK_ACK_REQUEST
+            && request.control.get() & 0x0006 == 0x0004)
+            .then_some(request)
     }
 
     pub fn tid(&self) -> u8 {
@@ -146,6 +148,12 @@ mod tests {
         frame[18..20].copy_from_slice(&(0x456_u16 << 4).to_le_bytes());
         let request = BlockAckRequest::parse(&frame).unwrap();
         assert_eq!((request.tid(), request.ssn()), (3, 0x456));
+        // Basic BAR (bit 2 clear) and Multi-TID BAR (bit 1 set) must be rejected.
+        frame[16..18].copy_from_slice(&(3_u16 << 12).to_le_bytes());
+        assert!(BlockAckRequest::parse(&frame).is_none());
+        frame[16..18].copy_from_slice(&((3_u16 << 12) | 6).to_le_bytes());
+        assert!(BlockAckRequest::parse(&frame).is_none());
+        frame[16..18].copy_from_slice(&((3_u16 << 12) | 4).to_le_bytes());
         frame[0] = 0x94;
         assert!(BlockAckRequest::parse(&frame).is_none());
     }

@@ -47,12 +47,18 @@ pub fn build_phy_rate_words(
 /// Applies the HT mixed-mode duration field added by vendor
 /// `txp_submit_to_pipe` (`0xadd0`) after building the base PHY words.
 pub(crate) fn finalize_phy_control(phy: PhyRateWords, rate_index: u8, frame_length: u16) -> u32 {
+    finalize_aggregate_phy_control(phy, rate_index, frame_length.wrapping_add(4))
+}
+
+/// Applies the HT mixed-mode L-SIG duration field for a PPDU whose length
+/// already includes FCS (such as an A-MPDU's `aggregate_length`).
+pub(crate) fn finalize_aggregate_phy_control(
+    phy: PhyRateWords,
+    rate_index: u8,
+    wire_length: u16,
+) -> u32 {
     if (phy.rate & 0x1fff) >> 10 == 5 {
-        phy.control
-            | (u32::from(crate::mac::ofdm_duration(
-                rate_index,
-                frame_length.wrapping_add(4),
-            )) << 12)
+        phy.control | (u32::from(crate::mac::ofdm_duration(rate_index, wire_length)) << 12)
     } else {
         phy.control
     }
@@ -363,8 +369,7 @@ pub(crate) fn prepare_single_frame_pas_timing(context: &TxContext) -> Result<(),
     Ok(())
 }
 
-/// Write a frame's TX descriptor (`txp_submit_to_pipe`) at `destination` and
-/// return its checksum.
+/// Write a frame's TX descriptor (`txp_submit_to_pipe`) at `destination`.
 ///
 /// # Safety
 /// `destination` must be descriptor storage in packet RAM that the MAC is not
@@ -372,7 +377,7 @@ pub(crate) fn prepare_single_frame_pas_timing(context: &TxContext) -> Result<(),
 pub(crate) fn emit_descriptor(
     context: &TxContext,
     destination: u32,
-) -> Result<u32, ProbeBuildError> {
+) -> Result<(), ProbeBuildError> {
     let length = context.frame_length.get();
     let frame = validated_tx_frame(context.frame.get(), length)
         .ok_or(ProbeBuildError::PacketRamMismatch)?;
@@ -414,15 +419,10 @@ pub(crate) fn emit_descriptor(
     .ok_or(ProbeBuildError::PacketRamMismatch)?;
     let frame_control =
         u32::from(context.frame_control.get()) | if tx_flags & 0x10 != 0 { 0x0800 } else { 0 };
-    let mut checksum = 0_u32;
     let mut word_index = 0_u32;
-    let mut mismatch = false;
     let mut add = |word: u32| {
-        let address = descriptor.word_unchecked(word_index) as usize;
-        write_u32(address, word);
-        mismatch |= read_u32(address) != word;
+        write_u32(descriptor.word_unchecked(word_index) as usize, word);
         word_index += 1;
-        checksum = checksum.rotate_left(5).wrapping_add(word);
     };
     add(0x5100_0000 | (phy.rate & 0x00ff_ffff));
     add(0x5000_0000 | (finalize_phy_control(phy, rate, length) & 0x00ff_ffff));
@@ -440,11 +440,7 @@ pub(crate) fn emit_descriptor(
         add((u32::from(length - 2) & 0x0fff) << 12 | (body.raw() & 3));
         add(0x0700_4600);
         add(0xf000_0000);
-        return if mismatch {
-            Err(ProbeBuildError::DescriptorReadbackMismatch)
-        } else {
-            Ok(checksum)
-        };
+        return Ok(());
     }
     add(0x3200_0000 | u32::from(context.ack_duration.get()));
     add(0x2900_0000 | packet_ram::encode_mac_packet_offset_u32(frame.descriptor_tail()));
@@ -476,18 +472,14 @@ pub(crate) fn emit_descriptor(
     }
     add(0x0700_4600);
     add(0xf000_0000);
-    if mismatch {
-        Err(ProbeBuildError::DescriptorReadbackMismatch)
-    } else {
-        Ok(checksum)
-    }
+    Ok(())
 }
 
 /// Stage a host frame's descriptor in its context's packet-RAM area.
 ///
 /// # Safety
 /// As [`emit_descriptor`].
-pub fn build_host_frame_descriptor(id: ContextId) -> Result<u32, ProbeBuildError> {
+pub fn build_host_frame_descriptor(id: ContextId) -> Result<(), ProbeBuildError> {
     let destination = host_descriptor_address(id).ok_or(ProbeBuildError::InvalidContextPointer)?;
     emit_descriptor(id.get(), destination)
 }

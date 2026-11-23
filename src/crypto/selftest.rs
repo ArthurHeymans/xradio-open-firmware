@@ -42,24 +42,22 @@ fn run(
             record[index] = value;
         }
     };
-    engine.start(frame, &transfer, &mut trace)?;
+    engine.start_traced(frame, &transfer, &mut trace)?;
     engine.wait()
 }
 
 impl Crypto {
     /// Encrypt the fixed vector and a matrix of payload lengths, then
-    /// decrypt the vector and a corrupted copy, all in HIF output buffer 0.
+    /// decrypt the vector and a corrupted copy, all in HIF input buffer 0.
     ///
     /// # Safety
-    /// Startup only: nothing else may use HIF output buffer 0 yet.
+    /// Startup only: nothing else may use HIF input buffer 0 yet.
     pub unsafe fn run_self_test(&mut self) {
-        // SAFETY: the caller guarantees exclusive use of HIF output buffer 0,
-        // which is at least SCRATCH_LEN octets of packet RAM.
+        const { assert!(SCRATCH_LEN <= crate::packet_ram::HIF_INPUT_SIZE) };
+        // SAFETY: the caller guarantees exclusive use of HIF input buffer 0,
+        // which is HIF_INPUT_SIZE (>= SCRATCH_LEN) octets of packet RAM.
         let scratch = unsafe {
-            core::slice::from_raw_parts_mut(
-                crate::packet_ram::hif_output(0) as *mut u8,
-                SCRATCH_LEN,
-            )
+            core::slice::from_raw_parts_mut(crate::packet_ram::hif_input(0) as *mut u8, SCRATCH_LEN)
         };
         let mut record = [0_u32; 22];
         record[0] = MAGIC;

@@ -388,9 +388,11 @@ pub fn response_command_bus_address(cpu_address: usize) -> Option<u32> {
 /// Check and encode a CPU-form packet-RAM address for a DMA descriptor.
 /// The bus value is intentionally not reversible; queue ownership retains the
 /// CPU-form address until the descriptor is reclaimed.
+#[inline(always)]
 pub fn packet_dma_bus_address(cpu_address: usize) -> Option<u32> {
     #[cfg(target_arch = "arm")]
-    let owned = contains_runtime_storage(cpu_address) || rx_fifo_backing().contains(&cpu_address);
+    let owned = (RUNTIME_CPU_START as usize..RUNTIME_CPU_END as usize).contains(&cpu_address)
+        || (RX_FIFO_CPU_START as usize..RX_FIFO_CPU_END as usize).contains(&cpu_address);
     #[cfg(not(target_arch = "arm"))]
     let owned = (RUNTIME_CPU_START as usize..RUNTIME_CPU_END as usize).contains(&cpu_address)
         || (RX_FIFO_CPU_START as usize..RX_FIFO_CPU_END as usize).contains(&cpu_address)
@@ -421,18 +423,28 @@ pub fn rx_fifo_base() -> usize {
 /// Unknown packet-RAM holes and all boot/diagnostic overlays return false.
 #[inline(always)]
 pub fn contains_runtime_storage(address: usize) -> bool {
-    host_frame_states().contains(&address)
-        || response_pointers().contains(&address)
-        || tx_commands().contains(&address)
-        || rate_ram().contains(&address)
-        || duration_words().contains(&address)
-        || response_commands().contains(&address)
-        || (interface_metadata()..interface_metadata() + INTERFACE_METADATA_SIZE).contains(&address)
-        || hif_inputs().contains(&address)
-        || hif_outputs().contains(&address)
-        || internal_tx_buffers().contains(&address)
-        || software_records().contains(&address)
-        || automatic_response_list().contains(&address)
+    // On ARM, `link-main-low.x` packs all 12 runtime objects contiguously with
+    // zero holes and asserts `SIZEOF(.packet_ram.runtime) == 0xf630`.
+    #[cfg(target_arch = "arm")]
+    {
+        (RUNTIME_CPU_START as usize..RUNTIME_CPU_END as usize).contains(&address)
+    }
+    #[cfg(not(target_arch = "arm"))]
+    {
+        hif_inputs().contains(&address)
+            || internal_tx_buffers().contains(&address)
+            || host_frame_states().contains(&address)
+            || hif_outputs().contains(&address)
+            || tx_commands().contains(&address)
+            || response_pointers().contains(&address)
+            || rate_ram().contains(&address)
+            || duration_words().contains(&address)
+            || response_commands().contains(&address)
+            || (interface_metadata()..interface_metadata() + INTERFACE_METADATA_SIZE)
+                .contains(&address)
+            || software_records().contains(&address)
+            || automatic_response_list().contains(&address)
+    }
 }
 
 #[inline(always)]
@@ -440,17 +452,22 @@ pub fn contains_runtime_range(address: usize, length: usize) -> bool {
     let Some(end) = address.checked_add(length) else {
         return false;
     };
+    #[cfg(target_arch = "arm")]
+    if address < RUNTIME_CPU_START as usize || end > RUNTIME_CPU_END as usize {
+        return false;
+    }
     let contains = |range: Range<usize>| address >= range.start && end <= range.end;
-    contains(host_frame_states())
-        || contains(response_pointers())
+    // Check hot TX payload pools first.
+    contains(hif_inputs())
+        || contains(internal_tx_buffers())
+        || contains(host_frame_states())
+        || contains(hif_outputs())
         || contains(tx_commands())
+        || contains(response_pointers())
         || contains(rate_ram())
         || contains(duration_words())
         || contains(response_commands())
         || contains(interface_metadata()..interface_metadata() + INTERFACE_METADATA_SIZE)
-        || contains(hif_inputs())
-        || contains(hif_outputs())
-        || contains(internal_tx_buffers())
         || contains(software_records())
         || contains(automatic_response_list())
 }

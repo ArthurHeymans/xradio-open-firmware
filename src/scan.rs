@@ -409,7 +409,7 @@ impl Scan {
             #[cfg(target_arch = "arm")]
             {
                 let now = crate::platform::timer_now();
-                if !deadline_reached(now, self.dwell_deadline) {
+                if self.num_channels != 0 && !deadline_reached(now, self.dwell_deadline) {
                     return None;
                 }
             }

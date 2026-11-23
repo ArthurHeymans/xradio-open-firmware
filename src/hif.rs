@@ -382,8 +382,7 @@ const EXCEPTION_NAME_LEN: usize = 48;
 /// # Safety
 /// The fixed HIF shared registers and emergency packet buffer must still be
 /// owned by this firmware. Callers must not reuse the buffer afterward.
-unsafe fn publish_exception_now<const N: usize>(registers: [u32; N], name: &[u8]) {
-    const { assert!(N <= EXCEPTION_REGISTERS) };
+unsafe fn publish_exception_now(registers: &[u32], name: &[u8]) {
     const MESSAGE_LENGTH: u16 = (4 + 4 + EXCEPTION_REGISTERS * 4 + EXCEPTION_NAME_LEN) as u16;
     let buffer = packet_ram::hif_output(0) as *mut u8;
     // The host counts every message it receives, including this one, against a
@@ -433,7 +432,7 @@ unsafe fn publish_exception_now<const N: usize>(registers: [u32; N], name: &[u8]
 /// The HIF shared registers and emergency output buffer must be accessible and
 /// owned by this firmware. No other publisher may use them during this call.
 /// The caller must halt without reusing the buffer now handed to the host.
-pub unsafe fn publish_halting_exception<const N: usize>(registers: [u32; N], name: &[u8]) {
+pub unsafe fn publish_halting_exception(registers: &[u32], name: &[u8]) {
     unsafe { publish_exception_now(registers, name) };
 }
 
@@ -441,7 +440,7 @@ pub unsafe fn publish_halting_exception<const N: usize>(registers: [u32; N], nam
 ///
 /// # Safety
 /// The fixed emergency HIF resources must still be owned by this firmware.
-pub unsafe fn publish_mac_fatal_exception<const N: usize>(registers: [u32; N]) {
+pub unsafe fn publish_mac_fatal_exception(registers: &[u32]) {
     unsafe { publish_halting_exception(registers, b"xr819-mac-event") };
 }
 
@@ -829,7 +828,7 @@ impl Transport {
             unsafe {
                 let word =
                     |offset: usize| ((buffer_address + offset) as *const u32).read_volatile();
-                publish_mac_fatal_exception([
+                publish_mac_fatal_exception(&[
                     buffer_address as u32,
                     consumer,
                     self.state.rx_producer,
@@ -902,9 +901,40 @@ impl Transport {
         self.output_releases[queue_slot] = release;
         self.output_shared_slots[queue_slot] = shared_slot;
         self.state.tx_queued = queued.wrapping_add(1);
-        let _header = unsafe { (buffer_address as *const u32).read_volatile() };
         self.stage_next_tx();
         drain_write_buffer();
+    }
+
+    /// Fill a free 384-byte output buffer directly while queuing request buffer
+    /// credits without intermediate write-buffer drains; `enqueue_output`
+    /// drains once after both the credits and output descriptor are staged.
+    pub fn publish_with_deferred_releases(
+        &mut self,
+        fill: impl FnOnce(&mut [u8], &mut dyn FnMut(RequestReleaseToken)) -> usize,
+    ) -> bool {
+        if !self.output_available() {
+            return false;
+        }
+        let Some(slot) = self.shared_slots_in_use.iter().position(|in_use| !in_use) else {
+            return false;
+        };
+        let address = packet_ram::hif_output(slot);
+        // SAFETY: a free shared buffer: no descriptor references it until it
+        // is published below, and the borrow ends with `fill`.
+        let buffer =
+            unsafe { core::slice::from_raw_parts_mut(address as *mut u8, SHARED_BUFFER_SIZE) };
+        let length = {
+            let mut release = |token: RequestReleaseToken| {
+                self.append_request_credit(token);
+            };
+            fill(buffer, &mut release)
+        };
+        if length > SHARED_BUFFER_SIZE {
+            crate::halt_always!();
+        }
+        self.shared_slots_in_use[slot] = true;
+        self.enqueue_output(address, length as u16, None, Some(slot as u8));
+        true
     }
 
     /// Publishes a response for the original request while preserving logical

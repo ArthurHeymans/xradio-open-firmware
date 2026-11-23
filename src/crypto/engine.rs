@@ -213,9 +213,22 @@ impl Engine {
         })
     }
 
-    /// Load key, nonce and AAD and start the payload DMA. `trace` sees the
-    /// registers at the self-test's numbered points.
-    pub fn start(
+    /// Load key, nonce and AAD and start the payload DMA without trace MMIO reads.
+    pub fn start(&mut self, frame: &mut [u8], transfer: &Transfer<'_>) -> Result<(), CcmpError> {
+        self.start_inner::<false>(frame, transfer, &mut |_, _| {})
+    }
+
+    /// Like [`Self::start`], sampling AES registers at the self-test's numbered points.
+    pub fn start_traced(
+        &mut self,
+        frame: &mut [u8],
+        transfer: &Transfer<'_>,
+        trace: &mut impl FnMut(usize, u32),
+    ) -> Result<(), CcmpError> {
+        self.start_inner::<true>(frame, transfer, trace)
+    }
+
+    fn start_inner<const TRACE: bool>(
         &mut self,
         frame: &mut [u8],
         transfer: &Transfer<'_>,
@@ -242,7 +255,9 @@ impl Engine {
             self.write_fifo_block(transfer.key);
             registers.command_status.set(0x1100);
             self.wait_status(|status| status & (1 << 13) != 0)?;
-            trace(9, self.status());
+            if TRACE {
+                trace(9, self.status());
+            }
             self.loaded_key = Some(*transfer.key);
         }
         self.write_fifo_block(&context);
@@ -250,13 +265,17 @@ impl Engine {
         registers.command_status.set(0x1240);
 
         self.wait_status(|status| status & (1 << 13) != 0)?;
-        trace(10, self.status());
+        if TRACE {
+            trace(10, self.status());
+        }
         self.write_fifo_block(&aad_stream[..16]);
         self.wait_status(|status| status & (1 << 12) == 0)?;
         registers.command_status.set(0x1403 - direction);
 
         self.wait_status(|status| status & (1 << 13) != 0)?;
-        trace(11, self.status());
+        if TRACE {
+            trace(11, self.status());
+        }
         self.write_fifo_block(&aad_stream[16..]);
         self.wait_status(|status| status & (1 << 12) == 0)?;
         registers.command_status.set(tail - direction);
@@ -264,16 +283,23 @@ impl Engine {
         registers.source.set(payload_address);
         registers.destination.set(payload_address);
         registers.length.set(payload_length as u32);
-        trace(14, registers.source.get());
-        trace(15, registers.destination.get());
-        trace(16, registers.length.get());
+        if TRACE {
+            trace(14, registers.source.get());
+            trace(15, registers.destination.get());
+            trace(16, registers.length.get());
+        }
         self.irqs = 0;
         self.completion_status = 0;
+        let _ = crate::interrupts::take_and_rearm(IRQ18 | IRQ20);
         crate::hif::drain_write_buffer();
         self.wait_status(|status| status & (1 << 12) == 0)?;
-        trace(12, self.status());
+        if TRACE {
+            trace(12, self.status());
+        }
         registers.command_status.set(0x3008_1009 - direction);
-        trace(13, self.status());
+        if TRACE {
+            trace(13, self.status());
+        }
         self.running = Some((crate::platform::timer_now(), transfer.decrypt));
         Ok(())
     }
@@ -283,14 +309,12 @@ impl Engine {
     /// (controller +0x04 only; it never writes +0x14 at runtime).
     pub fn poll(&mut self) -> Option<Result<(), CcmpError>> {
         let (started, decrypt) = self.running?;
-        let pending = crate::interrupts::take(IRQ18 | IRQ20);
+        let pending = crate::interrupts::take_and_rearm(IRQ18 | IRQ20);
         if pending != 0 {
-            crate::interrupts::rearm(pending);
             self.completion_status = self.status();
             self.irqs |= pending;
         }
         let outcome = if self.irqs != 0 {
-            crate::hif::drain_write_buffer();
             // Encryption completion is established by the IRQ (and the
             // self-test's exact ciphertext and MIC); status bit 0 is the MIC
             // check of a decryption only.
@@ -338,12 +362,7 @@ impl Engine {
         }
     }
 
-    pub fn start(
-        &mut self,
-        frame: &mut [u8],
-        transfer: &Transfer<'_>,
-        _trace: &mut impl FnMut(usize, u32),
-    ) -> Result<(), CcmpError> {
+    pub fn start(&mut self, frame: &mut [u8], transfer: &Transfer<'_>) -> Result<(), CcmpError> {
         use aes::Aes128;
         use ccm::{
             Ccm,

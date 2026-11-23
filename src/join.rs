@@ -45,7 +45,7 @@ pub fn activate_sta(
         return Err(JoinError::Channel);
     }
     crate::vif::activate_sta(interface, request, station_id).map_err(|_| JoinError::VifState)?;
-    if !program_joined_mac(interface, request.bssid) {
+    if !program_joined_mac(interface, Some(request.bssid)) {
         let _ = crate::vif::teardown(interface);
         return Err(JoinError::VifState);
     }
@@ -125,13 +125,16 @@ pub fn activate_ap(
 ///
 /// The caller must exclusively own the MAC, VIF/PAS and address-match state.
 #[cfg(target_arch = "arm")]
-fn program_joined_mac(interface: u8, bssid: [u8; 6]) -> bool {
+fn program_joined_mac(interface: u8, bssid: Option<[u8; 6]>) -> bool {
     crate::mac::program_joined_station_slot_timing(interface);
     if !crate::mac::program_active_vif_rate_tables(interface) {
         return false;
     }
     crate::mac::program_immediate_response_descriptors();
-    crate::mac::program_joined_bssid(bssid);
+    match bssid {
+        Some(bssid) => crate::mac::program_joined_bssid(bssid),
+        None => crate::mac::clear_bssid(),
+    }
     // Vendor STA mode installs the receive/address-match state required for
     // authentication and association responses after BSSID publication.
     crate::mac::program_joined_station_mode();
@@ -150,7 +153,8 @@ pub fn return_from_scan(interface: u8) -> bool {
         return false;
     };
     crate::mac::low_mac().pas(2_usize).activity.set(0);
-    program_joined_mac(interface, state.bssid)
+    let bssid = (state.mode != crate::vif::Role::AccessPoint as u8).then_some(state.bssid);
+    program_joined_mac(interface, bssid)
 }
 
 #[cfg(target_arch = "arm")]

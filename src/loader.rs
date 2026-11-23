@@ -9,11 +9,35 @@
 //! `xr819-fw.tar.gz`. Both Rust downloaders reproduce all five groups before
 //! entering the main image.
 
-const PHY_INIT_TABLES: &[(usize, &[u8])] = &[
-    (0x0ab8_1000, &crate::init_data::PHY_INIT_AB81000),
-    (0x0ab8_8400, &crate::init_data::PHY_INIT_AB88400),
-    (0x0ab8_8800, &crate::init_data::PHY_INIT_AB88800),
-    (0x0ab8_8c00, &crate::init_data::PHY_INIT_AB88C00),
+const fn bytes_to_u32_words<const BYTES: usize, const WORDS: usize>(
+    bytes: &[u8; BYTES],
+) -> [u32; WORDS] {
+    assert!(BYTES == WORDS * 4);
+    let mut words = [0_u32; WORDS];
+    let mut index = 0;
+    while index < WORDS {
+        let base = index * 4;
+        words[index] = u32::from_le_bytes([
+            bytes[base],
+            bytes[base + 1],
+            bytes[base + 2],
+            bytes[base + 3],
+        ]);
+        index += 1;
+    }
+    words
+}
+
+const PHY_INIT_AB81000_WORDS: [u32; 256] = bytes_to_u32_words(&crate::init_data::PHY_INIT_AB81000);
+const PHY_INIT_AB88400_WORDS: [u32; 204] = bytes_to_u32_words(&crate::init_data::PHY_INIT_AB88400);
+const PHY_INIT_AB88800_WORDS: [u32; 204] = bytes_to_u32_words(&crate::init_data::PHY_INIT_AB88800);
+const PHY_INIT_AB88C00_WORDS: [u32; 204] = bytes_to_u32_words(&crate::init_data::PHY_INIT_AB88C00);
+
+const PHY_INIT_TABLES: &[(usize, &[u32])] = &[
+    (0x0ab8_1000, &PHY_INIT_AB81000_WORDS),
+    (0x0ab8_8400, &PHY_INIT_AB88400_WORDS),
+    (0x0ab8_8800, &PHY_INIT_AB88800_WORDS),
+    (0x0ab8_8c00, &PHY_INIT_AB88C00_WORDS),
 ];
 
 const VENDOR_REGISTER_INITIALIZATION: &[(u32, u32)] = &[
@@ -61,9 +85,8 @@ const VENDOR_REGISTER_INITIALIZATION: &[(u32, u32)] = &[
 ];
 
 pub fn load_phy_init_tables() {
-    for &(destination, data) in PHY_INIT_TABLES {
-        for (index, word) in data.chunks_exact(4).enumerate() {
-            let value = u32::from_le_bytes([word[0], word[1], word[2], word[3]]);
+    for &(destination, words) in PHY_INIT_TABLES {
+        for (index, &value) in words.iter().enumerate() {
             unsafe { ((destination + index * 4) as *mut u32).write_volatile(value) };
         }
     }
@@ -83,11 +106,11 @@ mod tests {
     fn vendor_section_has_all_41_pairs() {
         assert_eq!(VENDOR_REGISTER_INITIALIZATION.len(), 41);
         assert_eq!(PHY_INIT_TABLES.len(), 4);
-        assert_eq!(PHY_INIT_TABLES[0].1.len(), 0x400);
+        assert_eq!(PHY_INIT_TABLES[0].1.len() * 4, 0x400);
         assert!(
             PHY_INIT_TABLES[1..]
                 .iter()
-                .all(|(_, data)| data.len() == 0x330)
+                .all(|(_, data)| data.len() * 4 == 0x330)
         );
     }
 }

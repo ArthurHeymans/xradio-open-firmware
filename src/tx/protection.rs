@@ -262,11 +262,7 @@ pub(crate) fn emit_protection_descriptor(
         context.request_flag_rate_bits.get(),
     );
     for (index, &word) in words[..len].iter().enumerate() {
-        let address = command as usize + 0x0c + index * 4;
-        write_u32(address, word);
-        if read_u32(address) != word {
-            return Err(ProbeBuildError::DescriptorReadbackMismatch);
-        }
+        write_u32(command as usize + 0x0c + index * 4, word);
     }
     Ok(())
 }
@@ -367,6 +363,8 @@ pub(crate) fn execute_protected_retry<M: Hw>(
             mmio.write(command + 4, flags);
         }
     }
+    #[cfg(target_arch = "arm")]
+    crate::cpu::drain_write_buffer();
     mmio.write(PIPE_IRQ_TRIGGER, (1_u32 << pipe_index) << 25);
     let cursor = mmio.read(ring.cursor_and_pending_mask());
     let ack = if current == data_slot && replay_prefix {

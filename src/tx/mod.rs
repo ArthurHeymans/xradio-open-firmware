@@ -80,7 +80,6 @@ pub enum ProbeBuildError {
     PipeStateUnavailable,
     PipeSlotBusy,
     PipeSlotOwnershipMismatch,
-    DescriptorReadbackMismatch,
     UnsupportedPublicationShape,
     CryptoFailure,
 }

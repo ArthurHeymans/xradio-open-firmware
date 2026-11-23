@@ -226,6 +226,9 @@ fn rx_packet_number(frame: &[u8]) -> Option<([u8; 6], u8, bool, u8, u64)> {
     }
     let header = header_length(control);
     let ccmp = frame.get(header..header + CCMP_HEADER_LEN)?;
+    if ccmp[3] & 0x20 == 0 {
+        return None;
+    }
     let pn = u64::from_le_bytes([ccmp[0], ccmp[1], ccmp[4], ccmp[5], ccmp[6], ccmp[7], 0, 0]);
     let transmitter = frame.get(10..16)?.try_into().ok()?;
     Some((
@@ -419,10 +422,13 @@ impl Crypto {
                 .checked_add(1)
                 .ok_or(KeyError::GenerationExhausted)?;
             let replaced = *record;
-            // Restore a retained identical key's counters before remembering
-            // the displaced slot, which could evict that history entry.
-            if let Some(previous) = self.history.iter().find(|previous| previous.same_key(&key)) {
-                key.keep_counters(previous);
+            // Restore a retained identical key's counters from either active
+            // slots (if the host moved slots) or recent history before
+            // remembering the displaced slot, which could evict that entry.
+            for previous in self.keys.iter().chain(&self.history) {
+                if previous.same_key(&key) {
+                    key.keep_counters(previous);
+                }
             }
             key.tx_pn = key.tx_pn.max(self.successor_packet_number(&key));
             self.remember(replaced);
@@ -458,15 +464,25 @@ impl Crypto {
         if !key.active {
             return;
         }
-        let slot = self
+        // If an identical key remains installed in another slot (e.g. a host
+        // moved slots and then removed the newer one), propagate the live
+        // counter high-water marks so lookup cannot roll back to stale PNs.
+        for active in &mut self.keys {
+            if active.same_key(&key) {
+                active.keep_counters(&key);
+            }
+        }
+        if let Some(previous) = self
             .history
-            .iter()
-            .position(|previous| previous.same_key(&key))
-            .unwrap_or_else(|| {
-                let slot = self.next_history;
-                self.next_history = (slot + 1) % KEY_HISTORY;
-                slot
-            });
+            .iter_mut()
+            .find(|previous| previous.same_key(&key))
+        {
+            previous.keep_counters(&key);
+            previous.generation = previous.generation.max(key.generation);
+            return;
+        }
+        let slot = self.next_history;
+        self.next_history = (slot + 1) % KEY_HISTORY;
         self.history[slot] = key;
     }
 
@@ -513,12 +529,15 @@ impl Crypto {
                 .get_mut(usize::from(slot))
                 .filter(|key| key.active && key.if_id == if_id && key.key_type == AES_GROUP)
         } else {
-            self.keys.iter_mut().find(|key| {
-                key.active
-                    && key.if_id == if_id
-                    && key.key_type == AES_PAIRWISE
-                    && key.peer == receiver
-            })
+            self.keys
+                .iter_mut()
+                .filter(|key| {
+                    key.active
+                        && key.if_id == if_id
+                        && key.key_type == AES_PAIRWISE
+                        && key.peer == receiver
+                })
+                .max_by_key(|key| key.generation)
         }
     }
 
@@ -540,17 +559,22 @@ impl Crypto {
         key_id: u8,
         group_addressed: bool,
     ) -> Option<usize> {
-        self.keys.iter().position(|key| {
-            key.active
-                && key.if_id == if_id
-                // Key ID zero is valid for a GTK too. Choose the key class from
-                // Address 1 before lookup, rather than letting table order decide.
-                && if group_addressed {
-                    key.key_type == AES_GROUP && key.key_id == key_id
-                } else {
-                    key.key_type == AES_PAIRWISE && key_id == 0 && key.peer == transmitter
-                }
-        })
+        self.keys
+            .iter()
+            .enumerate()
+            .filter(|(_, key)| {
+                key.active
+                    && key.if_id == if_id
+                    // Key ID zero is valid for a GTK too. Choose the key class from
+                    // Address 1 before lookup, rather than letting table order decide.
+                    && if group_addressed {
+                        key.key_type == AES_GROUP && key.key_id == key_id
+                    } else {
+                        key.key_type == AES_PAIRWISE && key_id == 0 && key.peer == transmitter
+                    }
+            })
+            .max_by_key(|(_, key)| key.generation)
+            .map(|(index, _)| index)
     }
 
     /// Check authority before a decrypted frame can affect a reorder window.
@@ -700,7 +724,7 @@ impl Crypto {
             aad_length,
             decrypt: false,
         };
-        self.engine.start(frame, &transfer, &mut |_, _| {})
+        self.engine.start(frame, &transfer)
     }
 
     /// Encrypt a frame and wait for the engine (single management frames).
@@ -748,6 +772,9 @@ impl Crypto {
         let ccmp: [u8; 8] = frame[header..header + CCMP_HEADER_LEN]
             .try_into()
             .map_err(|_| CcmpError::MalformedFrame)?;
+        if ccmp[3] & 0x20 == 0 {
+            return Err(CcmpError::MalformedFrame);
+        }
         let pn = [ccmp[7], ccmp[6], ccmp[5], ccmp[4], ccmp[1], ccmp[0]];
         let key_id = ccmp[3] >> 6;
         let transmitter: [u8; 6] = frame[10..16]
@@ -772,7 +799,7 @@ impl Crypto {
             aad_length,
             decrypt: true,
         };
-        self.engine.start(frame, &transfer, &mut |_, _| {})?;
+        self.engine.start(frame, &transfer)?;
         self.running = Some(Direction::Rx);
         Ok(Started::Running(Job {
             direction: Direction::Rx,
@@ -1925,5 +1952,55 @@ mod tests {
             start_rx(&mut crypto, &mut frame, 0),
             Ok(Started::Plain)
         ));
+    }
+
+    #[test]
+    fn removing_newer_identical_key_slot_never_rolls_back_counters() {
+        let mut crypto = Crypto::new();
+        let mut req_a = [0_u8; 44];
+        crypto
+            .add_key(0, &pairwise_request(&mut req_a, 0, AP))
+            .unwrap();
+
+        // Advance TX and RX on slot 0.
+        let mut f1 = tx_frame();
+        crypto.encrypt_now(&mut f1, 0).unwrap();
+        assert_eq!(tx_frame_packet_number(&f1), Some(1));
+        assert!(accept_counter(&mut crypto, &received(0, 10, None)));
+
+        // Install identical key into slot 2 (slot move); lookup now uses slot 2.
+        let mut req_b = [0_u8; 44];
+        crypto
+            .add_key(0, &pairwise_request(&mut req_b, 2, AP))
+            .unwrap();
+        let mut f2 = tx_frame();
+        crypto.encrypt_now(&mut f2, 0).unwrap();
+        assert_eq!(tx_frame_packet_number(&f2), Some(2));
+        let mut f3 = tx_frame();
+        crypto.encrypt_now(&mut f3, 0).unwrap();
+        assert_eq!(tx_frame_packet_number(&f3), Some(3));
+        assert!(accept_counter(&mut crypto, &received(0, 25, None)));
+
+        // Remove the newer slot (2) while slot 0 is still installed.
+        crypto.remove_key(2);
+
+        // Slot 0 must inherit slot 2's high-water marks (no TX nonce reuse, no RX replay).
+        let mut f4 = tx_frame();
+        crypto.encrypt_now(&mut f4, 0).unwrap();
+        assert_eq!(tx_frame_packet_number(&f4), Some(4));
+        assert!(!accept_counter(&mut crypto, &received(0, 25, None)));
+        assert!(accept_counter(&mut crypto, &received(0, 26, None)));
+
+        // Removing slot 0 later and reinstalling must also keep high-water marks in history.
+        crypto.remove_key(0);
+        let mut req_c = [0_u8; 44];
+        crypto
+            .add_key(0, &pairwise_request(&mut req_c, 1, AP))
+            .unwrap();
+        let mut f5 = tx_frame();
+        crypto.encrypt_now(&mut f5, 0).unwrap();
+        assert_eq!(tx_frame_packet_number(&f5), Some(5));
+        assert!(!accept_counter(&mut crypto, &received(0, 26, None)));
+        assert!(accept_counter(&mut crypto, &received(0, 27, None)));
     }
 }

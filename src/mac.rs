@@ -250,7 +250,7 @@ pub fn base_airtime(cfg: u16, rate: u8, length: u16, stream: bool) -> u16 {
             u32::from(CCK_DIVISORS[(rate & 3) as usize]),
         ) + if class == 1 { 0xc0 } else { 0x60 }
     } else {
-        let numerator = (u32::from(length) * 8 + 0x16) & 0xffff;
+        let numerator = u32::from(length) * 8 + 0x16;
         let mut value = 4 * ceil_div(
             numerator,
             u32::from(OFDM_DIVISORS[((rate - 6) & 15) as usize]),
@@ -649,6 +649,7 @@ pub fn arm_beacon(tbtt: u64) {
         packet_ram::response_pointer(0),
         packet_offset(packet_ram::response_command(3)),
     );
+    crate::cpu::drain_write_buffer();
     write_u32(platform::mac_register(0x0a00), 0x1030_0001);
     write_u32(
         platform::mac_register(0x0e08),
@@ -1202,5 +1203,17 @@ mod tests {
             secondary_fallbacks(1 << 16, 10),
             [10, 10, 16, 16, 16, 16, 16, 16]
         );
+    }
+
+    #[test]
+    fn large_ampdu_airtime_does_not_overflow_u16() {
+        // Above 8190 bytes, `length * 8` overflows u16; verify monotonic airtime and L-SIG length.
+        let small = extended_airtime(0x17, 21, 8_000, true);
+        let medium = extended_airtime(0x17, 21, 16_000, true);
+        let large = extended_airtime(0x17, 21, 32_000, true);
+        assert!(medium > small, "expected {medium} > {small}");
+        assert!(large > medium, "expected {large} > {medium}");
+        assert!(ofdm_duration(21, 16_000) > ofdm_duration(21, 8_000));
+        assert!(ofdm_duration(21, 32_000) > ofdm_duration(21, 16_000));
     }
 }

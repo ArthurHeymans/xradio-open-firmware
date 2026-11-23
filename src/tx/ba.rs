@@ -132,9 +132,22 @@ impl PeerSessions {
 
     /// The next frame to send and its peer's link.
     pub fn outgoing(&self, now: u32) -> Option<(u8, Outgoing)> {
-        (0..)
-            .zip(&self.links)
-            .find_map(|(link, sessions)| Some((link, sessions.outgoing(now)?)))
+        self.outgoing_with(now, |_, _, _| true)
+    }
+
+    /// The next frame to send and its peer's link, filtering BlockAckReqs
+    /// with `bar_ready(link, tid, owed_ssn)`.
+    pub fn outgoing_with(
+        &self,
+        now: u32,
+        mut bar_ready: impl FnMut(u8, u8, u16) -> bool,
+    ) -> Option<(u8, Outgoing)> {
+        (0..).zip(&self.links).find_map(|(link, sessions)| {
+            Some((
+                link,
+                sessions.outgoing_with(now, |tid, ssn| bar_ready(link, tid, ssn))?,
+            ))
+        })
     }
 
     /// The frame in flight completed at `now`.
@@ -151,6 +164,10 @@ pub struct BlockAckSessions {
     /// frame that gave up. The frame itself starts at the originator's
     /// window start, chosen when it is sent.
     bar: [Cell<Option<u16>>; TIDS],
+    /// Bit `tid` is set while `sessions[tid]` is `Session::Requested` or
+    /// `bar[tid]` is `Some(_)`, letting `wake_in` and `outgoing_with` skip
+    /// idle links/TIDs without scanning all 48 peer/TID slots every pass.
+    pending_tids: Cell<u8>,
     next_token: Cell<u8>,
 }
 
@@ -166,8 +183,23 @@ impl BlockAckSessions {
             sessions: [const { Cell::new(Session::Idle) }; TIDS],
             in_flight: Cell::new(None),
             bar: [const { Cell::new(None) }; TIDS],
+            pending_tids: Cell::new(0),
             next_token: Cell::new(1),
         }
+    }
+
+    #[inline]
+    fn update_pending(&self, tid: u8) {
+        let index = usize::from(tid);
+        if index >= TIDS {
+            return;
+        }
+        let bit = 1_u8 << tid;
+        let pending = matches!(self.sessions[index].get(), Session::Requested { .. })
+            || self.bar[index].get().is_some();
+        let mask = self.pending_tids.get();
+        self.pending_tids
+            .set(if pending { mask | bit } else { mask & !bit });
     }
 
     /// Forget every session; the association they belonged to is gone.
@@ -177,6 +209,7 @@ impl BlockAckSessions {
             .for_each(|session| session.set(Session::Idle));
         self.in_flight.set(None);
         self.bar.iter().for_each(|bar| bar.set(None));
+        self.pending_tids.set(0);
     }
 
     pub fn session(&self, tid: u8) -> Session {
@@ -207,31 +240,56 @@ impl BlockAckSessions {
                 attempts: 0,
                 sent_at: None,
             });
+            self.update_pending(tid);
         }
     }
 
     /// Microseconds until [`Self::outgoing`] resends or abandons a request
     /// that got no response.
     pub fn wake_in(&self, now: u32) -> Option<u32> {
-        self.sessions
-            .iter()
-            .filter_map(|session| match session.get() {
-                Session::Requested {
-                    sent_at: Some(sent_at),
-                    ..
-                } => Some(crate::deadline::until(
-                    sent_at.wrapping_add(RESPONSE_TIMEOUT_US),
-                    now,
-                )),
-                _ => None,
-            })
-            .min()
+        let mut mask = self.pending_tids.get();
+        if mask == 0 {
+            return None;
+        }
+        let mut earliest: Option<u32> = None;
+        while mask != 0 {
+            let tid = mask.trailing_zeros() as usize;
+            mask &= mask - 1;
+            if let Session::Requested {
+                sent_at: Some(sent_at),
+                ..
+            } = self.sessions[tid].get()
+            {
+                let wait = crate::deadline::until(sent_at.wrapping_add(RESPONSE_TIMEOUT_US), now);
+                earliest = Some(earliest.map_or(wait, |best| best.min(wait)));
+            }
+        }
+        earliest
     }
 
     /// The next frame to send, if any; BlockAckReqs first. Also resends or
     /// abandons requests whose response did not arrive in time.
     pub fn outgoing(&self, now: u32) -> Option<Outgoing> {
-        for session in &self.sessions {
+        self.outgoing_with(now, |_, _| true)
+    }
+
+    /// Like [`Self::outgoing`], but only emits a BlockAckReq when
+    /// `bar_ready(tid, owed_ssn)` is true (no older frame before `owed_ssn`
+    /// remains outstanding).
+    pub fn outgoing_with(
+        &self,
+        now: u32,
+        mut bar_ready: impl FnMut(u8, u16) -> bool,
+    ) -> Option<Outgoing> {
+        let pending = self.pending_tids.get();
+        if pending == 0 {
+            return None;
+        }
+        let mut mask = pending;
+        while mask != 0 {
+            let tid = mask.trailing_zeros() as u8;
+            mask &= mask - 1;
+            let session = &self.sessions[usize::from(tid)];
             if let Session::Requested {
                 token,
                 attempts,
@@ -248,23 +306,33 @@ impl BlockAckSessions {
                         sent_at: None,
                     }
                 });
+                self.update_pending(tid);
             }
         }
-        let bar = (0..)
-            .zip(&self.bar)
-            .find_map(|(tid, bar)| bar.get().map(|ssn| Outgoing::BlockAckRequest { tid, ssn }));
-        bar.or_else(|| {
-            (0..)
-                .zip(&self.sessions)
-                .find_map(|(tid, session)| match session.get() {
-                    Session::Requested {
-                        token,
-                        sent_at: None,
-                        ..
-                    } => Some(Outgoing::AddbaRequest { tid, token }),
-                    _ => None,
-                })
-        })
+        let mut mask = self.pending_tids.get();
+        while mask != 0 {
+            let tid = mask.trailing_zeros() as u8;
+            mask &= mask - 1;
+            if let Some(ssn) = self.bar[usize::from(tid)].get()
+                && bar_ready(tid, ssn)
+            {
+                return Some(Outgoing::BlockAckRequest { tid, ssn });
+            }
+        }
+        let mut mask = self.pending_tids.get();
+        while mask != 0 {
+            let tid = mask.trailing_zeros() as u8;
+            mask &= mask - 1;
+            if let Session::Requested {
+                token,
+                sent_at: None,
+                ..
+            } = self.sessions[usize::from(tid)].get()
+            {
+                return Some(Outgoing::AddbaRequest { tid, token });
+            }
+        }
+        None
     }
 
     /// `frame` was handed to the MAC.
@@ -295,12 +363,17 @@ impl BlockAckSessions {
                         attempts: attempts + 1,
                         sent_at: Some(now),
                     });
+                    self.update_pending(tid);
                 }
             }
             Outgoing::BlockAckRequest { tid, ssn } => {
                 let bar = &self.bar[usize::from(tid)];
-                if bar.get() == Some(ssn) {
+                if bar
+                    .get()
+                    .is_some_and(|pending| ssn.wrapping_sub(pending) & 0x0fff < 0x0800)
+                {
                     bar.set(None);
+                    self.update_pending(tid);
                 }
             }
             Outgoing::AddbaResponse { .. } => {}
@@ -331,23 +404,28 @@ impl BlockAckSessions {
                     } else {
                         Session::Refused
                     });
+                    self.update_pending(tid);
                 }
             }
             Received::Delba { tid } => {
                 if let Some(session) = self.sessions.get(usize::from(tid)) {
                     session.set(Session::Idle);
                     self.bar[usize::from(tid)].set(None);
+                    self.update_pending(tid);
                 }
             }
             Received::AddbaRequest { .. } | Received::PeerDelba { .. } => {}
         }
     }
 
+    /// The BlockAckReq target sequence owed for `tid`, if any.
+    pub fn bar_ssn(&self, tid: u8) -> Option<u16> {
+        self.bar.get(usize::from(tid)).and_then(Cell::get)
+    }
+
     /// A BlockAckReq for `tid` waits to be sent or is on its way.
     pub fn bar_pending(&self, tid: u8) -> bool {
-        self.bar
-            .get(usize::from(tid))
-            .is_some_and(|bar| bar.get().is_some())
+        self.bar_ssn(tid).is_some()
     }
 
     /// A frame with sequence number `sequence` of `tid` gave up. Within a
@@ -362,6 +440,7 @@ impl BlockAckSessions {
                 .is_none_or(|pending| ssn.wrapping_sub(pending) & 0x0fff < 0x0800);
             if later {
                 bar.set(Some(ssn));
+                self.update_pending(tid);
             }
         }
     }
@@ -606,5 +685,36 @@ mod tests {
             (sessions.session(1), sessions.outgoing(0)),
             (Session::Idle, None)
         );
+    }
+
+    #[test]
+    fn bar_sent_preserves_newer_give_up_ssn() {
+        let sessions = BlockAckSessions::new();
+        sessions.on_qos_data(0, 0xff);
+        let request = sessions.outgoing(0).unwrap();
+        let Outgoing::AddbaRequest { token, .. } = request else {
+            panic!("{request:?}")
+        };
+        sessions.sent(request, 0);
+        sessions.on_received(Received::AddbaResponse {
+            token,
+            status: 0,
+            tid: 0,
+            buffer_size: 16,
+        });
+
+        sessions.on_given_up(0, 10);
+        let first_bar = sessions.outgoing(0).unwrap();
+        assert_eq!(first_bar, Outgoing::BlockAckRequest { tid: 0, ssn: 11 });
+        // A newer frame gives up before `first_bar` completes.
+        sessions.on_given_up(0, 14);
+        sessions.sent(first_bar, 100);
+        // The owed BAR must still advance to 15 rather than being wiped by `sent(ssn=11)`.
+        assert_eq!(
+            sessions.outgoing(100),
+            Some(Outgoing::BlockAckRequest { tid: 0, ssn: 15 })
+        );
+        sessions.sent(Outgoing::BlockAckRequest { tid: 0, ssn: 15 }, 200);
+        assert_eq!(sessions.outgoing(200), None);
     }
 }

@@ -7,9 +7,10 @@ use crate::wsm::{ConfigurationRequest, EdcaParameters, TxPowerRange, TxQueuePara
 
 pub const MAX_DPD_DATA_LEN: usize = 1536;
 pub const MAX_TEMPLATE_FRAME_LEN: usize = 2304;
-/// Beacon and probe-response templates: mac80211's with HT and WPA2 IEs
-/// are a few hundred octets.
-pub const MAX_BEACON_TEMPLATE_LEN: usize = 1024;
+/// Beacon and probe-response templates: bounded by the internal TX buffer's
+/// frame capacity plus the 4-octet template MIB header so an accepted beacon
+/// can always be loaded into packet RAM.
+pub const MAX_BEACON_TEMPLATE_LEN: usize = 4 + crate::tx::INTERNAL_FRAME_CAPACITY;
 
 /// Template frame types (WSM_FRAME_TYPE_*).
 pub const TEMPLATE_PROBE_REQUEST: u8 = 0;
@@ -247,6 +248,7 @@ impl SddCalibration {
                 };
                 break;
             }
+            selected = record;
         }
         Some(ChannelCalibrationValues {
             first: base.wrapping_add(i16::from(selected[1]) * 4),
@@ -494,6 +496,11 @@ impl Configuration {
             (what & 1 == 0 || self.beacon.replace_element(element))
                 && (what & 2 == 0 || self.probe_response.replace_element(element))
         })
+    }
+
+    /// Whether a beacon template has been retained for this interface.
+    pub fn has_beacon(&self) -> bool {
+        self.beacon.get().is_some()
     }
 
     /// Consume the beacon template MIB for the `number`th TBTT. Its DTIM
@@ -1032,5 +1039,32 @@ mod tests {
         assert!(
             configuration.retain_interface_mib(crate::wsm::MIB_ID_PRIVATE_TX_BA_SESSION, &[3, 0])
         );
+    }
+
+    #[test]
+    fn rejects_beacon_templates_larger_than_internal_tx_buffer() {
+        let mut configuration = Configuration::new();
+        let max_frame = crate::tx::INTERNAL_FRAME_CAPACITY;
+
+        // 961-byte beacon frame (> INTERNAL_FRAME_CAPACITY) is rejected on install.
+        let mut too_large = [0_u8; 4 + 961];
+        too_large[0] = TEMPLATE_BEACON;
+        too_large[2..4].copy_from_slice(&(961_u16).to_le_bytes());
+        assert!(!configuration.retain_interface_mib(crate::wsm::MIB_ID_TEMPLATE_FRAME, &too_large));
+        assert!(!configuration.has_beacon());
+
+        // A valid beacon close to the limit is accepted, but growing it past 960 bytes via UPDATE_IE fails.
+        let frame_len = max_frame - 2;
+        let mut valid = [0_u8; 4 + 960];
+        valid[0] = TEMPLATE_BEACON;
+        valid[2..4].copy_from_slice(&(frame_len as u16).to_le_bytes());
+        assert!(
+            configuration
+                .retain_interface_mib(crate::wsm::MIB_ID_TEMPLATE_FRAME, &valid[..4 + frame_len])
+        );
+        assert!(configuration.has_beacon());
+
+        // Growing the beacon past 960 bytes via UPDATE_IE must fail.
+        assert!(!configuration.update_template_elements(1, 1, &[221, 2, 0xaa, 0xbb]));
     }
 }

@@ -10,8 +10,6 @@
 //! FIQ, the MAC's event line, stays masked. It still ends a wait for
 //! interrupt, and the main loop drains the MAC event FIFO.
 
-use core::cell::Cell;
-use critical_section::Mutex;
 use tock_registers::interfaces::{Readable, Writeable};
 use tock_registers::registers::{ReadOnly, ReadWrite, WriteOnly};
 use tock_registers::{register_bitfields, register_structs};
@@ -108,7 +106,89 @@ fn controller() -> &'static InterruptController {
 }
 
 /// Sources the handler masked and recorded, not yet taken by their owner.
-static RAISED: Mutex<Cell<u32>> = Mutex::new(Cell::new(0));
+///
+/// `thumbv5te-none-eabi` does not expose `core::sync::atomic::AtomicU32`.
+/// On single-core ARM966E-S, all accesses are encapsulated behind single
+/// aligned 32-bit `ldr`/`str` inline-assembly operations, which cannot be
+/// torn or interrupted mid-instruction and bypass LLVM's non-atomic memory
+/// model. Read-modify-write updates (`store` after `load`) are only performed
+/// while IRQs are masked (in `_irq_handler` or inside `critical_section::with`),
+/// so concurrent writers cannot exist.
+#[cfg(target_arch = "arm")]
+#[repr(transparent)]
+struct RaisedCell(core::cell::UnsafeCell<u32>);
+
+// SAFETY: single-core ARM966E-S; every access goes through a single aligned
+// 32-bit `ldr`/`str` inline-assembly instruction and writers serialize by
+// masking IRQs.
+#[cfg(target_arch = "arm")]
+unsafe impl Sync for RaisedCell {}
+
+#[cfg(target_arch = "arm")]
+impl RaisedCell {
+    const fn new() -> Self {
+        Self(core::cell::UnsafeCell::new(0))
+    }
+
+    #[inline(always)]
+    fn load(&self) -> u32 {
+        let value: u32;
+        // SAFETY: `self.0.get()` is a valid, 4-byte-aligned static `u32`.
+        // Single-instruction `ldr` is atomic with respect to IRQ entry on
+        // single-core ARMv5TE; omitting `nomem`/`pure` prevents reordering
+        // across the caller's compiler barriers and MMIO accesses.
+        unsafe {
+            core::arch::asm!(
+                "ldr {val}, [{addr}]",
+                addr = in(reg) self.0.get(),
+                val = lateout(reg) value,
+                options(nostack, preserves_flags),
+            );
+        }
+        value
+    }
+
+    /// # Safety
+    /// Caller must have IRQs masked so no concurrent writer can race.
+    #[inline(always)]
+    unsafe fn store(&self, value: u32) {
+        // SAFETY: `self.0.get()` is a valid, 4-byte-aligned static `u32`, and
+        // IRQs are masked by the caller. Single-instruction `str` is atomic
+        // with respect to unmasked readers.
+        unsafe {
+            core::arch::asm!(
+                "str {val}, [{addr}]",
+                addr = in(reg) self.0.get(),
+                val = in(reg) value,
+                options(nostack, preserves_flags),
+            );
+        }
+    }
+}
+
+#[cfg(not(target_arch = "arm"))]
+struct RaisedCell(core::sync::atomic::AtomicU32);
+
+#[cfg(not(target_arch = "arm"))]
+impl RaisedCell {
+    const fn new() -> Self {
+        Self(core::sync::atomic::AtomicU32::new(0))
+    }
+
+    #[inline(always)]
+    fn load(&self) -> u32 {
+        self.0.load(core::sync::atomic::Ordering::Acquire)
+    }
+
+    /// # Safety
+    /// Caller must have IRQs masked on target hardware.
+    #[inline(always)]
+    unsafe fn store(&self, value: u32) {
+        self.0.store(value, core::sync::atomic::Ordering::Release);
+    }
+}
+
+static RAISED: RaisedCell = RaisedCell::new();
 
 /// The vendor's setup (`tsf_timer_reload`, `0x56fc`): every source
 /// disabled and acknowledged, source 0x16 as FIQ.
@@ -141,20 +221,65 @@ pub(crate) fn rearm(sources: u32) {
 /// is masked, as during startup). Recorded sources stay masked until
 /// [`rearm`]ed.
 pub(crate) fn take(sources: u32) -> u32 {
-    critical_section::with(|cs| {
-        let controller = controller();
+    let controller = controller();
+    // Read hardware pending BEFORE `RAISED` with a compiler barrier between
+    // them: if an IRQ fires between the two reads, `_irq_handler` sets the
+    // bit in `RAISED`, so both being zero guarantees nothing in `sources` is
+    // pending or recorded.
+    let quick_pending = controller.pending.get() & sources;
+    core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
+    let quick_raised = RAISED.load() & sources;
+    if (quick_pending | quick_raised) == 0 {
+        return 0;
+    }
+    critical_section::with(|_| {
         let pending = controller.pending.get() & sources;
-        controller.acknowledge.set(pending);
-        let raised = RAISED.borrow(cs);
-        let taken = raised.get() & sources;
-        raised.set(raised.get() & !taken);
+        if pending != 0 {
+            controller.acknowledge.set(pending);
+        }
+        let raised = RAISED.load();
+        let taken = raised & sources;
+        if taken != 0 {
+            // SAFETY: IRQs are masked by `critical_section::with`.
+            unsafe { RAISED.store(raised & !taken) };
+        }
         taken | pending
+    })
+}
+
+/// Like [`take`], and re-arms any taken sources in the same critical section.
+/// Used by edge/latched sources (such as AES completion) that clear no
+/// separate device-level level line before re-enabling.
+pub(crate) fn take_and_rearm(sources: u32) -> u32 {
+    let controller = controller();
+    let quick_pending = controller.pending.get() & sources;
+    core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
+    let quick_raised = RAISED.load() & sources;
+    if (quick_pending | quick_raised) == 0 {
+        return 0;
+    }
+    critical_section::with(|_| {
+        let pending = controller.pending.get() & sources;
+        if pending != 0 {
+            controller.acknowledge.set(pending);
+        }
+        let raised = RAISED.load();
+        let taken = raised & sources;
+        if taken != 0 {
+            // SAFETY: IRQs are masked by `critical_section::with`.
+            unsafe { RAISED.store(raised & !taken) };
+        }
+        let result = taken | pending;
+        if result != 0 {
+            controller.enable.set(controller.enable.get() | result);
+        }
+        result
     })
 }
 
 /// Records are waiting for their owners.
 pub(crate) fn raised() -> bool {
-    critical_section::with(|cs| RAISED.borrow(cs).get() != 0)
+    RAISED.load() != 0
 }
 
 /// Acknowledges sources the handler never saw. Only for sleep.
@@ -171,8 +296,7 @@ extern "C" fn _irq_handler() {
     let pending = controller.pending.get();
     controller.enable.set(controller.enable.get() & !pending);
     controller.acknowledge.set(pending);
-    critical_section::with(|cs| {
-        let raised = RAISED.borrow(cs);
-        raised.set(raised.get() | pending);
-    });
+    // SAFETY: CPU hardware masks IRQ on IRQ exception entry and never re-enables
+    // it inside `_irq_handler`, so no concurrent writer can race on `RAISED`.
+    unsafe { RAISED.store(RAISED.load() | pending) };
 }

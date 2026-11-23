@@ -987,6 +987,7 @@ pub(crate) fn execute_single_probe_publication<M: Hw>(
     pipe.control.set(pipe.control.get() | 1);
     pipe.watchdog.set(PIPE_WATCHDOG_RELOAD);
     pipe.progressed();
+    crate::cpu::drain_write_buffer();
     mmio.write(ring.go(), 1);
     0
 }
@@ -1026,6 +1027,7 @@ pub(crate) fn finalize_staged_pipe<M: Hw>(
     pipe.control.set(pipe.control.get() | 1);
     pipe.watchdog.set(PIPE_WATCHDOG_RELOAD);
     pipe.progressed();
+    crate::cpu::drain_write_buffer();
     mmio.write(ring.go(), 1);
     true
 }

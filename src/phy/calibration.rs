@@ -1658,10 +1658,20 @@ pub fn restore_dynamic_iq_band_registers(snapshot: &DynamicIqBandRegisterSnapsho
     write_u32(0x0abb_801c, snapshot.abb801c);
     write_u32(0x0abb_81a8, snapshot.abb81a8);
     if snapshot.restore_abb80a8 {
-        write_u32(0x0abb_80a8, snapshot.abb80a8);
+        for index in 0..16_u32 {
+            write_u32(
+                0x0abb_80a8usize.wrapping_add(index as usize * 4),
+                snapshot.abb80a8,
+            );
+        }
     }
     if snapshot.restore_abb8068 {
-        write_u32(0x0abb_8068, snapshot.abb8068);
+        for index in 0..16_u32 {
+            write_u32(
+                0x0abb_8068usize.wrapping_add(index as usize * 4),
+                snapshot.abb8068,
+            );
+        }
     }
     write_u32(0x0abb_8004, snapshot.abb8004);
     let mode = self::state().profile.get();

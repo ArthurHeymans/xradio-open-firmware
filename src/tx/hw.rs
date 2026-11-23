@@ -57,14 +57,6 @@ pub(crate) fn copy_to_packet_ram(destination: u32, source: &[u8]) {
     });
 }
 
-/// Whether packet RAM at `destination` holds `source`.
-pub(crate) fn packet_ram_matches(destination: u32, source: &[u8]) -> bool {
-    let destination = destination as usize;
-    source.chunks(4).enumerate().all(|(index, chunk)| {
-        read_u32(destination + index * 4).to_le_bytes()[..chunk.len()] == *chunk
-    })
-}
-
 /// The TX engine's access to MAC registers and packet-RAM descriptors. The
 /// firmware uses [`Mmio`]; tests substitute a recorder to check the exact
 /// write order.

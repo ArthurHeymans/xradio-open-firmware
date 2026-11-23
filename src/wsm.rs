@@ -730,11 +730,21 @@ impl<'a> TxRequest<'a> {
     pub fn is_unicast_eapol(&self) -> bool {
         const EAPOL_SNAP: [u8; 8] = [0xaa, 0xaa, 0x03, 0x00, 0x00, 0x00, 0x88, 0x8e];
         let frame_control = u16::from_le_bytes([self.frame[0], self.frame[1]]);
-        frame_control & 0x000c == 0x0008
-            && self.frame[4] & 1 == 0
-            && self.frame[24..self.frame.len().min(48)]
-                .windows(EAPOL_SNAP.len())
-                .any(|window| window == EAPOL_SNAP)
+        if frame_control & 0x000c != 0x0008 || self.frame[4] & 1 != 0 {
+            return false;
+        }
+        let mut llc = if frame_control & 0x0300 == 0x0300 {
+            30
+        } else {
+            24
+        };
+        if frame_control & 0x008c == 0x0088 {
+            llc += if frame_control & 0x8000 != 0 { 6 } else { 2 };
+        }
+        if frame_control & 0x4000 != 0 {
+            llc += 8;
+        }
+        self.frame.get(llc..llc + EAPOL_SNAP.len()) == Some(EAPOL_SNAP.as_slice())
     }
 
     /// Ordinary data goes through the host TX path (aggregates, batches);
@@ -1722,8 +1732,20 @@ mod tests {
         let request = TxRequest::parse(&payload).unwrap();
         assert!(!request.is_unicast_management());
         assert!(request.is_unicast_data());
+        assert!(request.is_unicast_eapol());
 
         assert!(!request.is_unicast_null_data());
+
+        // Ordinary IP data carrying EAPOL LLC/SNAP bytes deeper in the body must not match.
+        let mut fake = [0_u8; TxRequest::PAYLOAD_HEADER_LEN + 64];
+        fake[TxRequest::PAYLOAD_HEADER_LEN..][..2].copy_from_slice(&0x0188_u16.to_le_bytes());
+        fake[TxRequest::PAYLOAD_HEADER_LEN + 4..][..6]
+            .copy_from_slice(&[0x20, 5, 0xb6, 0xff, 1, 0x43]);
+        fake[TxRequest::PAYLOAD_HEADER_LEN + 26..][..8]
+            .copy_from_slice(&[0xaa, 0xaa, 0x03, 0, 0, 0, 0x08, 0x00]);
+        fake[TxRequest::PAYLOAD_HEADER_LEN + 40..][..8]
+            .copy_from_slice(&[0xaa, 0xaa, 0x03, 0, 0, 0, 0x88, 0x8e]);
+        assert!(!TxRequest::parse(&fake).unwrap().is_unicast_eapol());
 
         payload[TxRequest::PAYLOAD_HEADER_LEN..][..2].copy_from_slice(&0x01c8_u16.to_le_bytes());
         let qos_null = TxRequest::parse(&payload).unwrap();

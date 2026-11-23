@@ -47,6 +47,14 @@ pub static XR819_EXCEPTION_RECORD: Global<UnsafeCell<ExceptionRecord>> =
     Global::new(UnsafeCell::new(ExceptionRecord::empty()));
 
 #[cfg(target_arch = "arm")]
+#[inline(always)]
+fn mask_interrupts() {
+    // ARMv5 has no `cpsid`; disable IRQ and FIQ via CPSR in ARM or Thumb via
+    // aarch32_cpu's register helper, or critical_section::acquire().
+    let _ = unsafe { critical_section::acquire() };
+}
+
+#[cfg(target_arch = "arm")]
 fn publish_record(label: &[u8]) -> ! {
     let record = unsafe { &*XR819_EXCEPTION_RECORD.get() };
     let registers = [
@@ -69,7 +77,7 @@ fn publish_record(label: &[u8]) -> ! {
         record.registers[8],
         record.registers[9],
     ];
-    unsafe { crate::hif::publish_halting_exception(registers, label) };
+    unsafe { crate::hif::publish_halting_exception(&registers, label) };
     spin_forever()
 }
 
@@ -82,10 +90,11 @@ fn spin_forever() -> ! {
 /// `halt_always!`: tell the host where, then stop.
 #[cfg(target_arch = "arm")]
 pub fn halt_at(file: &'static str, line: u32) -> ! {
+    mask_interrupts();
     // The 48-octet name field keeps the end of the path.
     let name = file.as_bytes();
     let name = &name[name.len().saturating_sub(48)..];
-    unsafe { crate::hif::publish_halting_exception([EXCEPTION_KIND_HALT, line], name) };
+    unsafe { crate::hif::publish_halting_exception(&[EXCEPTION_KIND_HALT, line], name) };
     spin_forever()
 }
 
@@ -106,9 +115,10 @@ pub extern "C" fn xr819_exception_terminal() -> ! {
 /// Records a Rust panic distinctly from an architected CPU exception.
 #[cfg(target_arch = "arm")]
 pub fn panic_terminal(line: u32, column: u32, file_hash: u32) -> ! {
+    mask_interrupts();
     let record = XR819_EXCEPTION_RECORD.get();
     unsafe {
-        core::ptr::addr_of_mut!((*record).valid).write_volatile(0);
+        record.write_volatile(ExceptionRecord::empty());
         core::ptr::addr_of_mut!((*record).kind).write_volatile(EXCEPTION_KIND_PANIC);
         core::ptr::addr_of_mut!((*record).fault_pc).write_volatile(line);
         core::ptr::addr_of_mut!((*record).exception_lr).write_volatile(column);

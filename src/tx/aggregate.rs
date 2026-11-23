@@ -16,7 +16,9 @@ use super::ampdu::MAX_MEMBERS;
 use super::hw::{read_u8, write_u32};
 use super::*;
 
-/// Longest A-MPDU PPDU to build, in microseconds; HT allows 5,484.
+/// Longest A-MPDU PPDU to build, in microseconds; HT allows 5,484, and 4,000
+/// already fits all 16 full-size MPDUs at MCS 5..7 while keeping lower-MCS
+/// PPDUs shorter on noisy 2.4 GHz channels.
 const MAX_AIRTIME_US: u32 = 4_000;
 
 /// A-MPDU bytes that fit in `MAX_AIRTIME_US` at HT rate index `rate`
@@ -94,7 +96,7 @@ pub fn publish_aggregate(
         .ok_or(ProbeBuildError::PipeSlotBusy)?;
     if !(2..=MAX_MEMBERS).contains(&count)
         || pipe >= 4
-        || members.iter().any(|id| id.get().flags.get() & 0x400 != 0)
+        || members.iter().any(|id| id.get().flags.get() & 0x600 != 0)
     {
         return Err(ProbeBuildError::UnsupportedPublicationShape);
     }
@@ -131,6 +133,26 @@ pub fn publish_aggregate(
     let reply = ack::Pending::new(own, peer, tid, &sequences[..count])
         .ok_or(ProbeBuildError::UnsupportedPublicationShape)?;
 
+    // Build and validate the software-record command stream before mutating
+    // the PAS ring so an oversized or malformed stream never leaks entries.
+    let spacing = (selector != 0).then(|| {
+        let end = packet_ram::automatic_response_list().end as u32;
+        ampdu::transfer_word(end - 4 - u32::from(selector) * 4)
+    });
+    let mut list = [ampdu::Member {
+        frame_state: 0,
+        frame_length: 0,
+    }; MAX_MEMBERS];
+    for (entry, &id) in list.iter_mut().zip(members) {
+        *entry = ampdu::Member {
+            frame_state: host_descriptor_address(id)
+                .ok_or(ProbeBuildError::UnsupportedPublicationShape)?,
+            frame_length: id.get().frame_length.get(),
+        };
+    }
+    let stream = ampdu::command_stream(&list[..count], selector, spacing)
+        .ok_or(ProbeBuildError::UnsupportedPublicationShape)?;
+
     // Take every member off the PAS ring and stage its descriptor; undo in
     // reverse on failure.
     let mut taken: [Option<(u8, u8)>; MAX_MEMBERS] = [None; MAX_MEMBERS];
@@ -161,22 +183,6 @@ pub fn publish_aggregate(
     }
 
     // Software record: member transfers, delimiters, spacing, terminator.
-    let spacing = (selector != 0).then(|| {
-        let end = packet_ram::automatic_response_list().end as u32;
-        ampdu::transfer_word(end - 4 - u32::from(selector) * 4)
-    });
-    let mut list = [ampdu::Member {
-        frame_state: 0,
-        frame_length: 0,
-    }; MAX_MEMBERS];
-    for (entry, &id) in list.iter_mut().zip(members) {
-        *entry = ampdu::Member {
-            frame_state: host_descriptor_address(id).unwrap_or(0),
-            frame_length: id.get().frame_length.get(),
-        };
-    }
-    let stream = ampdu::command_stream(&list[..count], selector, spacing)
-        .ok_or(ProbeBuildError::UnsupportedPublicationShape)?;
     let record_address = software_record(record_index);
     for (index, &word) in stream.words().iter().enumerate() {
         write_u32(record_address as usize + index * 4, word);
@@ -211,7 +217,7 @@ pub fn publish_aggregate(
         .unwrap_or(0);
     let words = ampdu::phy_words(
         phy.rate,
-        finalize_phy_control(phy, rate, context.frame_length.get()),
+        finalize_aggregate_phy_control(phy, rate, stream.aggregate_length),
         hardware_rate,
         stream.aggregate_length,
     );
@@ -221,9 +227,15 @@ pub fn publish_aggregate(
     write_u32(command + 0x18, ampdu::transfer_word(record_address));
 
     // The first member stands for the slot: it expects the BlockAck, and its
-    // timing describes the aggregate (vendor `txp_build_pipe_descriptor`
+    // timing describes the full aggregate (vendor `txp_build_pipe_descriptor`
     // kind 1: duration word payload << 15 | 0x20b4, airtime payload + 0xd4).
-    let payload = context.payload_extended.get();
+    let phy_config = crate::mac::low_mac().rate_config.get();
+    let payload = crate::mac::extended_airtime(
+        phy_config,
+        rate,
+        stream.aggregate_length,
+        context.flags.get() & 8 != 0,
+    );
     context.frame_kind.set(0x0c);
     context.payload_base.set(payload);
     context.ack_duration.set(0xb4);
@@ -353,9 +365,19 @@ fn resolve(record: &Record, delivered: u16) {
     for (member, status) in members.iter().zip(statuses.iter_mut()).rev() {
         if let (Some(id), Some(status)) = (member, status)
             && *status == REQUEUED
-            && !requeue_at_pas_head(*id)
         {
-            *status = 0x0b;
+            let context = id.get();
+            let rate = context.tx_rate.get();
+            if let Some(rate_try) = context.rate_try.get(usize::from(rate >> 3)) {
+                let shift = u32::from((rate & 7) * 4);
+                let attempts = (rate_try.get() >> shift) & 0x0f;
+                if attempts < 0x0f {
+                    rate_try.set((rate_try.get() & !(0x0f << shift)) | ((attempts + 1) << shift));
+                }
+            }
+            if !requeue_at_pas_head(*id) {
+                *status = 0x0b;
+            }
         }
     }
     for (id, status) in members

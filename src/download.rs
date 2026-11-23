@@ -97,16 +97,17 @@ struct DownloadStream<'a> {
 
 impl DownloadStream<'_> {
     fn read_word(&mut self) -> Result<u32, ()> {
-        if self
-            .position
-            .checked_add(4)
-            .is_none_or(|end| end > self.size)
-        {
+        let Some(next_position) = self.position.checked_add(4) else {
+            unsafe { write_volatile(&mut self.control.status, STATUS_BAD_FORMAT) };
+            return Err(());
+        };
+        if next_position > self.size {
+            unsafe { write_volatile(&mut self.control.status, STATUS_BAD_FORMAT) };
             return Err(());
         }
         loop {
             let put = unsafe { read_volatile(&self.control.put) };
-            if put > self.position {
+            if put >= next_position {
                 break;
             }
             spin_loop();
@@ -114,7 +115,7 @@ impl DownloadStream<'_> {
         let fifo_offset = self.position & (FIFO_SIZE - 1);
         let source = (fifo_base() + fifo_offset as usize) as *const u32;
         let word = unsafe { read_volatile(source) };
-        self.position += 4;
+        self.position = next_position;
         unsafe {
             write_volatile(&mut self.control.trace_pc, self.position);
             write_volatile(&mut self.control.debug[0], word);

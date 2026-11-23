@@ -133,7 +133,8 @@ impl Firmware {
             | u32::from(self.pending_tx_confirmation.is_some()) << 4
             | u32::from(self.beacons.unreported().is_some()) << 5
             | u32::from(tx::host_management_runtime_active(self.tx_engine)) << 6
-            | u32::from(self.beacons.signal.unreported().is_some()) << 7;
+            | u32::from(self.beacons.signal.unreported().is_some()) << 7
+            | u32::from(self.ap.multicast_start_owed()) << 8;
         let activity = self.transport.activity(Activity::new().with(own));
         let activity = self.radio.activity(activity);
         let activity = self.crypto.activity(activity);
@@ -155,7 +156,7 @@ impl Firmware {
             self.tx_engine.ba.wake_in(now),
             tx::aggregate::wake_in(now),
             self.scan.wake_in(now),
-            self.ap.wake_in(),
+            self.ap.wake_in(self.configuration.has_beacon()),
             self.power_save.wake_in(now),
         ]
         .into_iter()
@@ -214,7 +215,7 @@ impl Firmware {
         }
         self.ap.service(self.configuration);
         // Start encrypting what the command lane admitted.
-        self.host_tx_driver.seal(self.crypto);
+        self.host_tx_driver.seal(self.crypto, &self.tx_engine.ba);
         self.doze_receiver_if_idle();
     }
 
@@ -290,12 +291,19 @@ impl Firmware {
         // A firmware BlockAck frame (ADDBA request, BlockAckReq) holds back new
         // data batches until the MAC has no data frame, then goes out through
         // the management publisher.
+        let now = crate::platform::timer_now();
         let key_change_pending = command::key_change_pending(self);
         let block_ack_waiting = !key_change_pending
             && vif::active_interface().is_some()
             && (self.radio.block_ack_response().is_some()
-                || self.tx_engine.ba.outgoing(self.now).is_some());
-        self.host_tx_driver.seal(self.crypto);
+                || self
+                    .tx_engine
+                    .ba
+                    .outgoing_with(now, |link, tid, ssn| {
+                        self.host_tx_driver.bar_ready(link, tid, ssn)
+                    })
+                    .is_some());
+        self.host_tx_driver.seal(self.crypto, &self.tx_engine.ba);
         self.host_tx_driver.service(
             self.tx_engine,
             self.radio.fifo(),
@@ -313,11 +321,12 @@ impl Firmware {
                 ack_failures,
             } = tx::service_host_management_tx(self.tx_engine, self.crypto, None, 32)
         {
+            let completed_at = crate::platform::timer_now();
             match owner {
-                tx::ManagementOwner::BlockAck => self.tx_engine.ba.completed(self.now),
-                tx::ManagementOwner::PowerSave => self
-                    .power_save
-                    .completed(status == 0, crate::platform::timer_now()),
+                tx::ManagementOwner::BlockAck => self.tx_engine.ba.completed(completed_at),
+                tx::ManagementOwner::PowerSave => {
+                    self.power_save.completed(status == 0, completed_at);
+                }
                 tx::ManagementOwner::Host { packet_id } => {
                     self.pending_tx_confirmation = Some((packet_id, status, tx_rate, ack_failures));
                 }
@@ -340,7 +349,13 @@ impl Firmware {
                 .radio
                 .block_ack_response()
                 .map(|frame| (0, frame))
-                .or_else(|| self.tx_engine.ba.outgoing(self.now))
+                .or_else(|| {
+                    self.tx_engine
+                        .ba
+                        .outgoing_with(crate::platform::timer_now(), |link, tid, ssn| {
+                            self.host_tx_driver.bar_ready(link, tid, ssn)
+                        })
+                })
         {
             let tid = frame.tid();
             let ssn =
@@ -361,17 +376,24 @@ impl Firmware {
                 }
                 (_, None) => false,
             };
+            let tracked = match frame {
+                tx::ba::Outgoing::BlockAckRequest { tid, .. } => {
+                    tx::ba::Outgoing::BlockAckRequest { tid, ssn }
+                }
+                other => other,
+            };
             let sessions = self.tx_engine.ba.link(link);
-            match frame {
+            let sent_at = crate::platform::timer_now();
+            match tracked {
                 // Answering the peer: nothing to track once it is out.
                 tx::ba::Outgoing::AddbaResponse { .. } => self.radio.block_ack_response_sent(),
                 _ if published => {
                     // Its PM bit is clear: the AP takes us for awake.
-                    self.power_save.on_traffic(crate::platform::timer_now());
-                    sessions.published(frame)
+                    self.power_save.on_traffic(sent_at);
+                    sessions.published(tracked)
                 }
                 // Unsendable: drop it rather than hold data back forever.
-                _ => sessions.sent(frame, self.now),
+                _ => sessions.sent(tracked, sent_at),
             }
         } else if !key_change_pending
             && !scanning
@@ -490,51 +512,41 @@ impl Firmware {
         let format = self.configuration.tx_confirm_format();
         let count = self
             .host_tx_driver
-            .confirmation_count((self.response_scratch.len() - 8) / format.entry_len());
+            .confirmation_count((SHARED_BUFFER_SIZE - 8) / format.entry_len());
         if count == 0 {
             return;
         }
-        let Ok(length) = encode_multi_tx_confirm_header(format, count, self.response_scratch)
-        else {
-            return;
-        };
-        let mut first_release = None;
-        for index in 0..count {
-            let Some(confirmation) = self.host_tx_driver.confirmation() else {
-                return;
-            };
-            if encode_tx_confirm_entry(
-                format,
-                confirmation.packet_id,
-                confirmation.status,
-                confirmation.tx_rate,
-                confirmation.ack_failures,
-                confirmation.flags,
-                confirmation.rate_try,
-                8 + index * format.entry_len(),
-                self.response_scratch,
-            )
-            .is_err()
-            {
-                return;
-            }
-            let Some(release) = self.host_tx_driver.finish_confirmation() else {
-                return;
-            };
-            crate::counters::tx_completed(confirmation.status, confirmation.ack_failures);
-            if first_release.is_none() {
-                first_release = Some(release);
-            } else {
-                self.transport.release_request(release);
-            }
-        }
-        if let Some(release) = first_release {
-            self.transport.publish_request_in_place(
-                release,
-                &self.response_scratch[..length],
-                length as u16,
-            );
-        }
+        let host_tx_driver = &mut *self.host_tx_driver;
+        let _ = self
+            .transport
+            .publish_with_deferred_releases(|output, release_token| {
+                let Ok(length) = encode_multi_tx_confirm_header(format, count, output) else {
+                    crate::halt_always!();
+                };
+                for index in 0..count {
+                    let Some((confirmation, release)) = host_tx_driver.take_confirmation() else {
+                        crate::halt_always!();
+                    };
+                    if encode_tx_confirm_entry(
+                        format,
+                        confirmation.packet_id,
+                        confirmation.status,
+                        confirmation.tx_rate,
+                        confirmation.ack_failures,
+                        confirmation.flags,
+                        confirmation.rate_try,
+                        8 + index * format.entry_len(),
+                        output,
+                    )
+                    .is_err()
+                    {
+                        crate::halt_always!();
+                    }
+                    crate::counters::tx_completed(confirmation.status, confirmation.ack_failures);
+                    release_token(release);
+                }
+                length
+            });
     }
 
     fn service_scan(&mut self, host_request_waiting: bool) {
@@ -620,31 +632,37 @@ impl Firmware {
         // wait for the request lane to be empty, though: under continuous
         // uplink there is always a request, and RX (beacons included) starved
         // until the host declared the AP lost.
-        if self.pending_scan_completion.is_none()
-            && (!host_request_waiting || self.transport.spare_publications() > 1)
-        {
+        let reserve = u32::from(host_request_waiting);
+        if self.pending_scan_completion.is_none() && self.transport.spare_publications() > reserve {
             if let (Some(if_id), Some(channel)) =
                 (self.scan.active_interface(), self.scan.active_channel())
             {
-                if self.transport.publication_available() {
-                    if let Some(indication) = self.radio.poll_scan_indication(if_id, channel) {
-                        self.transport.publish_radio(indication);
-                    }
+                if let Some(indication) = self.radio.poll_scan_indication(if_id, channel) {
+                    self.transport.publish_radio(indication);
                 }
             } else if let Some(if_id) = vif::active_interface() {
                 let channel = vif::snapshot(if_id).map(|state| state.channel).unwrap_or(0);
-                let publication_available = self.transport.publication_available();
-                if publication_available
-                    && let Some(indication) = self.radio.poll_joined_indication(
-                        if_id,
-                        channel,
-                        &self.tx_engine.ba,
-                        &mut self.beacons,
-                        &mut self.power_save,
-                        self.crypto,
-                    )
-                {
+                if let Some(indication) = self.radio.poll_joined_indication(
+                    if_id,
+                    channel,
+                    &self.tx_engine.ba,
+                    &mut self.beacons,
+                    &mut self.power_save,
+                    self.crypto,
+                ) {
                     self.transport.publish_radio(indication);
+                    for _ in 0..3 {
+                        if self.transport.spare_publications() <= reserve
+                            || !self.radio.has_ready_session_frames()
+                        {
+                            break;
+                        }
+                        let Some(next) = self.radio.take_ready_indication(if_id, self.crypto)
+                        else {
+                            break;
+                        };
+                        self.transport.publish_radio(next);
+                    }
                 }
             } else {
                 // Vendor RX processing never stops between scans. Recycle one

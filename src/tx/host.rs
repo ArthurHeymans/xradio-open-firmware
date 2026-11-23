@@ -380,11 +380,18 @@ pub fn classify(retained: &mut RetainedHostTx) -> Result<Option<u8>, HostPrepare
     // peer sees is a complete BlockAckReq (measured: 0 on air at 20 octets, 51 at 24).
     // Extend the retained frame in place and let the classification report the real
     // MPDU length rather than trimming it back to 20.
-    if frame_length >= 20 && read_u8(frame_address as usize) & 0xfc == 0x84 {
-        let fcs = frame_address as usize + usize::from(frame_length);
-        (fcs..fcs + 4).for_each(|address| write_u8(address, 0));
-        frame_length += 4;
-        context.frame_length.set(frame_length);
+    if frame_length == 20 && read_u8(frame_address as usize) & 0xfc == 0x84 {
+        let base = crate::packet_ram::hif_inputs().start;
+        let offset =
+            (frame_address as usize).wrapping_sub(base) % crate::packet_ram::HIF_INPUT_SIZE;
+        if crate::packet_ram::hif_inputs().contains(&(frame_address as usize))
+            && offset + usize::from(frame_length) + 4 <= crate::packet_ram::HIF_INPUT_SIZE
+        {
+            let fcs = frame_address as usize + usize::from(frame_length);
+            (fcs..fcs + 4).for_each(|address| write_u8(address, 0));
+            frame_length += 4;
+            context.frame_length.set(frame_length);
+        }
     }
     // SAFETY: the retained context owns its packet-RAM frame buffer until
     // completion, and nothing else accesses it while it is classified in
@@ -437,31 +444,52 @@ pub fn start_encryption(
     .map_err(HostPrepareError::Crypto)
 }
 
-/// Time an encrypted (or unprotected) frame for the PAS.
+/// Validate an encrypted (or unprotected) frame before queuing it as pending.
+/// Airtime calculation runs once in `release_pending_to_pas` when the frame
+/// enters the PAS ring against live link rate configuration.
 #[cfg(target_arch = "arm")]
 pub fn finish_preparation(retained: &mut RetainedHostTx) -> Result<(), HostPrepareError> {
-    crate::tx::prepare_single_frame_pas_timing(retained.context.get())
-        .map_err(HostPrepareError::Timing)
+    let context = retained.context.get();
+    if usize::from(context.interface.get()) > 2 {
+        return Err(HostPrepareError::Timing(
+            crate::tx::ProbeBuildError::InvalidInterface,
+        ));
+    }
+    crate::tx::validated_context_tx_frame(context).ok_or(HostPrepareError::Timing(
+        crate::tx::ProbeBuildError::PacketRamMismatch,
+    ))?;
+    Ok(())
 }
 
-/// Sequence number and TID of a retained QoS data frame, read from its header.
+/// Sequence number and TID of a retained unicast QoS data frame, read from its header.
 #[cfg(target_arch = "arm")]
 pub(crate) fn qos_sequence(id: ContextId) -> Option<(u8, u16)> {
     let context = id.get();
     let frame = context.frame.get() as usize;
+    let frame_length = usize::from(context.frame_length.get());
     let frame_control = read_u16(frame);
-    // QoS data carrying a payload (not QoS-null): the frames we number.
-    (frame_control & 0x00cc == 0x0088).then(|| {
-        let tid = (read_u16(frame + 24) & 0x0f) as u8;
-        (tid, read_u16(frame + 22) >> 4)
-    })
+    let qos_offset = if frame_control & 0x0300 == 0x0300 {
+        30
+    } else {
+        24
+    };
+    // Unicast QoS data carrying a payload (not QoS-null): the frames we number.
+    (frame_control & 0x00cc == 0x0088
+        && frame_length >= qos_offset + 2
+        && read_u8(frame + 4) & 1 == 0)
+        .then(|| {
+            let tid = (read_u16(frame + qos_offset) & 0x0f) as u8;
+            (tid, read_u16(frame + 22) >> 4)
+        })
 }
 
-/// Stage the frame's descriptor and queue the frame as pending (the mode-0
-/// tail insertion of the post-crypto callback).
+/// Queue the encrypted frame as pending (the mode-0 tail insertion of the
+/// post-crypto callback). Descriptor emission happens at publication time
+/// (either into the pipe slot for single frames or into the context area by
+/// the A-MPDU publisher), so emitting one here would be immediately overwritten.
 ///
 /// # Safety
-/// The context must be classified, encrypted and timed.
+/// The context must be classified and encrypted.
 #[cfg(target_arch = "arm")]
 pub fn enqueue_post_crypto(retained: &mut RetainedHostTx) -> Result<(), PostCryptoError> {
     if retained.phase != HostTxPhase::Classified {
@@ -472,8 +500,6 @@ pub fn enqueue_post_crypto(retained: &mut RetainedHostTx) -> Result<(), PostCryp
     if status < STATUS_PENDING {
         return Err(PostCryptoError::ExistingStatus(status));
     }
-    crate::tx::build_host_frame_descriptor(retained.context)
-        .map_err(PostCryptoError::Descriptor)?;
     retained.phase = HostTxPhase::PostCryptoQueued;
     Ok(())
 }
@@ -502,7 +528,7 @@ const fn pas_submission_expired(submitted: u32, now: u32) -> bool {
 const PAS_RING_SIZE: usize = 64;
 
 /// FIFO of frames released to PAS scheduling. Reservation takes entries out
-/// of the middle and leaves holes; the next insertion compacts them.
+/// of the middle and leaves holes; compaction runs lazily when the ring fills.
 struct PasRing {
     head: Cell<u8>,
     tail: Cell<u8>,
@@ -546,8 +572,8 @@ impl PasRing {
         None
     }
 
-    /// Compact the live entries to start at the old tail, then append `id`.
-    fn push(&self, id: ContextId) -> Result<(), PendingServiceError> {
+    /// Compact live entries to start at the current tail.
+    fn compact(&self) {
         let old_tail = self.tail.get();
         let mut scan = self.head.get();
         let mut write = old_tail;
@@ -560,20 +586,34 @@ impl PasRing {
         }
         self.head.set(old_tail);
         self.tail.set(write);
-        let next = next_index(write);
-        if next == old_tail {
-            return Err(PendingServiceError::PasRingFull);
+    }
+
+    /// Append `id`, compacting holes lazily only when the ring appears full.
+    fn push(&self, id: ContextId) -> Result<(), PendingServiceError> {
+        let mut write = self.tail.get();
+        let mut next = next_index(write);
+        if next == self.head.get() {
+            self.compact();
+            write = self.tail.get();
+            next = next_index(write);
+            if next == self.head.get() {
+                return Err(PendingServiceError::PasRingFull);
+            }
         }
         self.entry(write).set(Some(id));
         self.tail.set(next);
         Ok(())
     }
 
-    /// Insert `id` before the head.
+    /// Insert `id` before the head, compacting holes first if needed.
     fn push_front(&self, id: ContextId) -> bool {
-        let head = self.head.get().wrapping_sub(1) & (PAS_RING_SIZE as u8 - 1);
+        let mut head = self.head.get().wrapping_sub(1) & (PAS_RING_SIZE as u8 - 1);
         if head == self.tail.get() || self.entry(head).get().is_some() {
-            return false;
+            self.compact();
+            head = self.head.get().wrapping_sub(1) & (PAS_RING_SIZE as u8 - 1);
+            if head == self.tail.get() || self.entry(head).get().is_some() {
+                return false;
+            }
         }
         self.entry(head).set(Some(id));
         self.head.set(head);
@@ -785,8 +825,6 @@ pub struct HostSchedulerReservation {
     context: ContextId,
     pipe: u8,
     slot: u8,
-    ring_position: u8,
-    original_ring_head: u8,
     original_flags: u32,
     original_slot: SlotImage,
     original_prefix: Option<(u8, SlotImage)>,
@@ -852,7 +890,11 @@ impl HostSchedulerReservation {
         if let Some((slot, image)) = self.original_prefix {
             pipes().pipe(self.pipe).slot(slot).restore(image);
         }
-        PAS_RING.restore(self.context, self.ring_position, self.original_ring_head);
+        if !PAS_RING.push_front(self.context) {
+            release_pas_accounting();
+            retained.phase = HostTxPhase::PendingEligible;
+            return false;
+        }
         retained.phase = HostTxPhase::PasQueued;
         true
     }
@@ -1061,8 +1103,6 @@ fn reserve_non_aggregate_scheduler_at(
         context: id,
         pipe,
         slot,
-        ring_position,
-        original_ring_head,
         original_flags,
         original_slot,
         original_prefix,
@@ -1225,6 +1265,21 @@ mod tests {
         let full = PasRing::new();
         (0..PAS_RING_SIZE - 1).for_each(|index| full.push(id(index % 30)).unwrap());
         assert!(!full.push_front(id(0)));
+        // Interior removals leave holes that `push` compacts lazily when tail meets head.
+        let sparse = PasRing::new();
+        (0..PAS_RING_SIZE - 1).for_each(|index| sparse.push(id(index % 30)).unwrap());
+        // Remove every odd slot (keeping index 0 at the head so head cannot advance).
+        for pos in (1..PAS_RING_SIZE - 1).step_by(2) {
+            sparse.take(pos as u8);
+        }
+        // Ring has holes so push must compact lazily and succeed without losing FIFO order.
+        sparse.push(id(29)).unwrap();
+        let expected: std::vec::Vec<_> = (0..PAS_RING_SIZE - 1)
+            .step_by(2)
+            .map(|i| id(i % 30))
+            .chain(core::iter::once(id(29)))
+            .collect();
+        assert_eq!(order(&sparse), expected);
     }
 
     #[test]

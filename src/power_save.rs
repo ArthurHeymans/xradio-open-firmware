@@ -189,7 +189,17 @@ impl StationPowerSave {
     /// SET_PM.
     pub fn set_mode(&mut self, mode: Mode, now: u32) {
         self.mode = mode;
-        self.last_activity = now;
+        if mode == Mode::Active
+            && self
+                .notice
+                .is_some_and(|notice| notice.pm && notice.sent_at.is_none())
+        {
+            self.notice = None;
+            self.retry_at = None;
+        }
+        if self.notice.is_none() {
+            self.last_activity = now;
+        }
     }
 
     /// SET_BSS_PARAMS: the association ID the AP gave us.
@@ -336,7 +346,7 @@ impl StationPowerSave {
         }
     }
 
-    /// A frame went to the AP (its PM bit clear wakes us) or came from it.
+    /// A frame went to the AP (its PM bit clear wakes us at the AP).
     pub fn on_traffic(&mut self, now: u32) {
         self.last_activity = now;
         self.ap = Ap::Awake;
@@ -345,6 +355,23 @@ impl StationPowerSave {
             .is_some_and(|notice| notice.pm && notice.sent_at.is_none())
         {
             self.notice = None;
+            self.retry_at = None;
+        }
+    }
+
+    /// A unicast data frame arrived from our AP. Keep an already-awake station
+    /// from idling back to sleep, without pretending the AP cleared our PM bit
+    /// if the AP currently thinks we are asleep.
+    pub fn on_rx_traffic(&mut self, now: u32) {
+        if self.ap == Ap::Awake && self.notice.is_none_or(|n| n.sent_at.is_none()) {
+            self.last_activity = now;
+            if self
+                .notice
+                .is_some_and(|notice| notice.pm && notice.sent_at.is_none())
+            {
+                self.notice = None;
+                self.retry_at = None;
+            }
         }
     }
 
@@ -377,6 +404,11 @@ impl StationPowerSave {
         self.scheduled_wake = None;
         if tim.is_some_and(|tim| tim.group_follows()) {
             self.group_until = Some(now.wrapping_add(GROUP_WINDOW_US));
+        } else if self
+            .group_until
+            .is_some_and(|until| now.wrapping_sub(until) as i32 >= 0)
+        {
+            self.group_until = None;
         }
         if self.ap == Ap::Asleep
             && self.notice.is_none()
@@ -391,6 +423,12 @@ impl StationPowerSave {
 
     /// The null frame to send now, if any: its PM bit.
     pub fn outgoing(&mut self, now: u32) -> Option<bool> {
+        if self
+            .group_until
+            .is_some_and(|until| now.wrapping_sub(until) as i32 >= 0)
+        {
+            self.group_until = None;
+        }
         if self.aid == 0 {
             return None;
         }
@@ -426,16 +464,31 @@ impl StationPowerSave {
         let Some(notice) = self.notice.take() else {
             return;
         };
+        // A frame of ours after the null (PM clear) woke the AP again.
+        let traffic_since = notice
+            .sent_at
+            .is_some_and(|sent| self.last_activity.wrapping_sub(sent) as i32 > 0);
         if acknowledged {
-            // A frame of ours after the null (PM clear) woke the AP again.
-            let traffic_since = notice
-                .sent_at
-                .is_some_and(|sent| self.last_activity.wrapping_sub(sent) as i32 > 0);
             self.ap = if notice.pm && !traffic_since {
                 Ap::Asleep
             } else {
                 Ap::Awake
             };
+            self.retry_at = None;
+            self.last_activity = now;
+        } else if notice.pm && self.mode == Mode::Active {
+            // Host selected Active while PM=1 was in flight. Do not retry PM=1;
+            // the unacked frame may still have reached the AP, so treat it as
+            // asleep unless later PM=0 traffic already woke it, letting
+            // `outgoing` send PM=0 immediately.
+            self.ap = if traffic_since { Ap::Awake } else { Ap::Asleep };
+            self.retry_at = None;
+            self.last_activity = now;
+        } else if !notice.pm && !matches!(self.mode, Mode::Active) {
+            // Host re-entered PowerSave while PM=0 was in flight. If the
+            // unacked frame reached the AP it stopped buffering, so mark it
+            // awake and let the idle timer re-enter sleep cleanly.
+            self.ap = Ap::Awake;
             self.retry_at = None;
             self.last_activity = now;
         } else {
@@ -459,11 +512,18 @@ impl StationPowerSave {
         if let Some(at) = self.retry_at.filter(|_| self.notice.is_some()) {
             return Some(crate::deadline::until(at, now));
         }
+        if let Some(until) = self.group_until
+            && self.may_doze()
+            && now.wrapping_sub(until) as i32 <= 0
+        {
+            return Some(crate::deadline::until(until, now));
+        }
         match (self.mode, self.ap) {
             (Mode::PowerSave { idle_us }, Ap::Awake) => Some(crate::deadline::until(
                 self.last_activity.wrapping_add(idle_us),
                 now,
             )),
+            (Mode::Active, Ap::Asleep) => Some(0),
             _ => self.notice.map(|_| 0),
         }
     }
@@ -893,5 +953,35 @@ mod tests {
                 idle_us: DEFAULT_IDLE_US
             }
         );
+    }
+
+    #[test]
+    fn in_flight_sleep_notice_reconciles_with_active_on_ack_and_nack() {
+        for acknowledged in [true, false] {
+            let mut ps = StationPowerSave::new();
+            ps.set_aid(1);
+            ps.set_mode(Mode::PowerSave { idle_us: 10_000 }, 0);
+            assert_eq!(ps.outgoing(10_000), Some(true));
+            ps.published(10_000);
+            // Host switches back to Active while PM=1 is still in flight.
+            ps.set_mode(Mode::Active, 11_000);
+            assert_eq!(ps.outgoing(11_000), None);
+            // Completion (ACK or no-ACK) must never retry PM=1 and must queue PM=0 immediately.
+            ps.completed(acknowledged, 12_000);
+            assert_eq!(ps.wake_in(12_000), Some(0));
+            assert_eq!(ps.outgoing(12_000), Some(false));
+        }
+
+        // If a host TX went out after the PM=1 notice and before no-ACK completion,
+        // the AP was already woken by that frame (PM=0), so no redundant null is queued.
+        let mut ps = StationPowerSave::new();
+        ps.set_aid(1);
+        ps.set_mode(Mode::PowerSave { idle_us: 10_000 }, 0);
+        assert_eq!(ps.outgoing(10_000), Some(true));
+        ps.published(10_000);
+        ps.set_mode(Mode::Active, 11_000);
+        ps.on_traffic(11_500);
+        ps.completed(false, 12_000);
+        assert_eq!(ps.outgoing(12_000), None);
     }
 }

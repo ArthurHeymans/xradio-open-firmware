@@ -47,6 +47,13 @@ impl Class0RuntimeOwners {
         pipe < 4 && (self.slots >> (pipe * 4)) & 0xf != 0
     }
 
+    pub const fn all_pipes_busy(self) -> bool {
+        self.contains_pipe(0)
+            && self.contains_pipe(1)
+            && self.contains_pipe(2)
+            && self.contains_pipe(3)
+    }
+
     pub fn occupied_slots(self, pipe: u8) -> Option<[bool; 4]> {
         if pipe >= 4 {
             return None;

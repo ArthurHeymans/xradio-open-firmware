@@ -11,6 +11,10 @@ fn cached_pll_channel() -> u16 {
     self::state().pll_channel.get()
 }
 
+fn cached_pll_profile() -> u8 {
+    self::state().pll_profile.get()
+}
+
 pub(super) fn cached_pll_divider() -> (u32, u32) {
     (
         self::state().pll_integer.get(),
@@ -18,11 +22,12 @@ pub(super) fn cached_pll_divider() -> (u32, u32) {
     )
 }
 
-fn set_cached_pll_divider(integer: u32, fractional: u32, channel: u16) {
+fn set_cached_pll_divider(integer: u32, fractional: u32, channel: u16, profile: u8) {
     let phy = self::state();
     phy.pll_integer.set(integer);
     phy.pll_fractional.set(fractional);
     phy.pll_channel.set(channel);
+    phy.pll_profile.set(profile);
 }
 
 fn set_channel_power_limits(low_rate: i16, high_rate: i16) {
@@ -494,9 +499,7 @@ pub fn program_channel_pll(channel: u16) -> Result<PllDivider, ChannelPllError> 
         return Err(ChannelPllError::InvalidReference);
     }
     let cached_channel = cached_pll_channel();
-    // The vendor extended-settle flag is set at startup and never cleared.
-    let cache_forced = true;
-    let divider = if cached_channel == channel && !cache_forced {
+    let divider = if cached_channel == channel && cached_pll_profile() == profile {
         let (integer, fractional) = cached_pll_divider();
         PllDivider {
             integer,
@@ -506,10 +509,11 @@ pub fn program_channel_pll(channel: u16) -> Result<PllDivider, ChannelPllError> 
     } else {
         let divider = pll_divider(frequency_khz, multiplier, divisor as u32)
             .ok_or(ChannelPllError::InvalidReference)?;
-        set_cached_pll_divider(divider.integer, divider.fractional, channel);
+        set_cached_pll_divider(divider.integer, divider.fractional, channel, profile);
         divider
     };
-    commit_channel_pll(divider.register, profile, cache_forced);
+    // The vendor extended-settle flag is set at startup and never cleared.
+    commit_channel_pll(divider.register, profile, true);
     Ok(divider)
 }
 
@@ -564,14 +568,12 @@ pub fn measure_temperature_primary() -> Result<TemperatureMeasurement, Temperatu
     Ok(TemperatureMeasurement { value, accepted })
 }
 
-/// Inspired by `phy_txpower_from_rate_table`.
-///
-/// The SDD-derived rate-table pointer in PHY software state must be valid.
-pub fn channel_tx_power_from_rate_table(
+pub(super) fn channel_tx_power_from_sdd(
+    sdd: &crate::configuration::SddCalibration,
     channel: u8,
     second_column: bool,
-) -> Result<i16, ChannelPowerError> {
-    let table = self::calibration().profiles[0];
+) -> i16 {
+    let table = &sdd.profiles[0];
     let records = &table.channel_records[..usize::from(table.channel_count)];
     let mut selected = 0_usize;
     for (index, record) in records.iter().enumerate() {
@@ -586,10 +588,21 @@ pub fn channel_tx_power_from_rate_table(
         }
         selected = index;
     }
-    let column = if second_column { 1 } else { 2 };
+    let column = if second_column { 2 } else { 1 };
     let encoded = i32::from(records.get(selected).map_or(0, |record| record[column]));
     let base = i32::from(self::state().threshold.get());
-    Ok(base.wrapping_add(encoded.wrapping_mul(4)) as i16)
+    base.wrapping_add(encoded.wrapping_mul(4)) as i16
+}
+
+/// Inspired by `phy_txpower_from_rate_table`.
+///
+/// The SDD-derived rate-table pointer in PHY software state must be valid.
+pub fn channel_tx_power_from_rate_table(
+    channel: u8,
+    second_column: bool,
+) -> Result<i16, ChannelPowerError> {
+    let sdd = self::calibration();
+    Ok(channel_tx_power_from_sdd(&sdd, channel, second_column))
 }
 
 /// Publish threshold and both channel TX-power values to the PHY software
@@ -603,12 +616,13 @@ pub fn publish_channel_power(channel: u8) -> Result<(i16, i16, i16), ChannelPowe
         1 => 0x31,
         _ => return Err(ChannelPowerError::InvalidThresholdTable),
     };
-    let threshold = self::calibration()
+    let sdd = self::calibration();
+    let threshold = sdd
         .channel_threshold_correction(threshold_id, u16::from(channel))
         .ok_or(ChannelPowerError::InvalidThresholdTable)?;
     self::state().threshold.set(threshold as u16 as i16);
-    let first = channel_tx_power_from_rate_table(channel, false)?;
-    let second = channel_tx_power_from_rate_table(channel, true)?;
+    let first = channel_tx_power_from_sdd(&sdd, channel, false);
+    let second = channel_tx_power_from_sdd(&sdd, channel, true);
     set_channel_power_limits(first, second);
     Ok((threshold, first, second))
 }
@@ -777,7 +791,8 @@ pub(super) fn compute_gain_entry(
     })
 }
 
-pub(super) fn gain_computation_input(
+fn gain_computation_input_from(
+    sdd: &crate::configuration::SddCalibration,
     profile: u8,
     rate: u8,
     first_limit: i32,
@@ -789,7 +804,6 @@ pub(super) fn gain_computation_input(
     let profile_index = usize::from(profile);
     let rate = rate.min(10);
     let coefficient_index = profile_index * 2;
-    let sdd = self::calibration();
     let bank = &sdd.profiles[profile_index];
     let phy = self::state();
     Ok(GainComputationInput {
@@ -812,6 +826,17 @@ pub(super) fn gain_computation_input(
         analog_word_30: crate::platform::remap_window(4),
         state_scale: phy.state_scale.get(),
     })
+}
+
+#[cfg(test)]
+pub(super) fn gain_computation_input(
+    profile: u8,
+    rate: u8,
+    first_limit: i32,
+    second_limit: i32,
+) -> Result<GainComputationInput, GainProgrammingError> {
+    let sdd = self::calibration();
+    gain_computation_input_from(&sdd, profile, rate, first_limit, second_limit)
 }
 
 pub(super) fn encoded_gain_words(gain_code: u16, rssi_value: u16) -> (u32, u32) {
@@ -841,20 +866,33 @@ pub fn program_all_tx_gain_slots(power_tenths_dbm: i32) -> Result<(), GainProgra
     }
     let requested_offset = gain_div(power_tenths_dbm.wrapping_shl(4), 10)?;
     let profile_index = usize::from(profile);
+    let sdd = self::calibration();
+    let low_limit = i32::from(channel_power_limit(false));
+    let high_limit = i32::from(channel_power_limit(true));
+    let mut cached_top = None;
     for slot in 0..16usize {
-        let rate = (slot as u8).min(10);
-        let rate_limit =
-            i32::from(self::calibration().profiles[profile_index].rate_limits[usize::from(rate)])
+        let (entry, companion) = if slot >= 10
+            && let Some(words) = cached_top
+        {
+            words
+        } else {
+            let rate = (slot as u8).min(10);
+            let rate_limit = i32::from(sdd.profiles[profile_index].rate_limits[usize::from(rate)])
                 .wrapping_add(requested_offset);
-        let second_limit = rate_limit.min(i32::from(channel_power_limit(rate > 1)));
-        let result = compute_gain_entry(gain_computation_input(
-            profile,
-            rate,
-            requested_offset,
-            second_limit,
-        )?)?;
-
-        let (entry, companion) = encoded_gain_words(result.gain_code, result.rssi_value);
+            let second_limit = rate_limit.min(if rate > 1 { high_limit } else { low_limit });
+            let result = compute_gain_entry(gain_computation_input_from(
+                &sdd,
+                profile,
+                rate,
+                requested_offset,
+                second_limit,
+            )?)?;
+            let words = encoded_gain_words(result.gain_code, result.rssi_value);
+            if slot == 10 {
+                cached_top = Some(words);
+            }
+            words
+        };
         write_u32(0x0abb_801c + slot * 4, entry);
         write_u32(0x0abb_8400 + slot * 4, companion);
     }
@@ -970,10 +1008,8 @@ pub(super) fn begin_channel_transition(
             apply_register_list(list);
         }
         // Scan rate configuration 0x0117 selects dispatcher mode 2 in
-        // `phy_do_channel_switch` (0xf7fc). The first channel performs a
-        // pre-calibration dispatch, RF initialization, then the requested
-        // mode-2 dispatch.
-        program_mode2_band_hardware();
+        // `phy_do_channel_switch` (0xf7fc): RF initialization, then the
+        // SDD-corrected AGC table and mode-2 band dispatch.
         prepare_rf_mode0_stage();
         // Vendor `phy_init_once` keeps this outside its one-shot guard and
         // rebuilds the SDD-corrected AGC table after RF initialization.
@@ -1225,6 +1261,7 @@ pub fn select_channel_calibration(
             };
             break;
         }
+        selected = entry;
     }
     let value = if first {
         selected.first

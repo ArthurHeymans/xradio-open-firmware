@@ -1031,4 +1031,59 @@ fn slot_owners_are_served_round_robin_from_the_cursor() {
         Some((10, 7))
     );
     assert_eq!(owners.next_slot_owner(0, 0), None);
+    assert!(!owners.all_pipes_busy());
+    assert!(owners.observe(8, 1, 0));
+    assert!(!owners.all_pipes_busy());
+    assert!(owners.observe(9, 3, 3));
+    assert!(owners.all_pipes_busy());
+}
+
+#[test]
+fn bounded_completion_queue_wraps_fifo_and_enforces_capacity() {
+    let mut queue: BoundedCompletionQueue<u32, 4> = BoundedCompletionQueue::new();
+    assert_eq!(queue.take(), None);
+    for value in 1..=4 {
+        assert_eq!(queue.push(value), Ok(()));
+    }
+    assert_eq!(queue.push(5), Err(5));
+    assert_eq!(queue.take(), Some(1));
+    assert_eq!(queue.take(), Some(2));
+    assert_eq!(queue.push(5), Ok(()));
+    assert_eq!(queue.push(6), Ok(()));
+    assert_eq!(queue.push(7), Err(7));
+    assert_eq!(queue.take(), Some(3));
+    assert_eq!(queue.take(), Some(4));
+    assert_eq!(queue.take(), Some(5));
+    assert_eq!(queue.take(), Some(6));
+    assert_eq!(queue.take(), None);
+}
+
+#[test]
+fn multi_pipe_publish_preserves_in_progress_phy_transition() {
+    // Sequence: publish A -> start A -> publish B -> finish A -> start B.
+    let mut global_state = 2_u8;
+
+    // publish A: command 1 moves global/seq to 3.
+    global_state = next_phy_operation_1_state(global_state);
+    let mut phy_operation = global_state;
+    assert_eq!((global_state, phy_operation), (3, 3));
+
+    // start A: command 2 programs TX PHY and moves global/seq to 4.
+    assert_eq!(phy_operation, 3);
+    global_state = 4;
+
+    // publish B while A is in flight: must NOT overwrite state 4 back to 3.
+    global_state = next_phy_operation_1_state(global_state);
+    phy_operation = global_state;
+    assert_eq!((global_state, phy_operation), (4, 4));
+
+    // finish A: sees seq == 4, runs command 3 (global 4 -> 5), seq -> 2.
+    assert_eq!(phy_operation, 4);
+    assert_eq!(global_state, 4);
+    global_state = 5;
+    phy_operation = 2;
+
+    // start B (and any subsequent publish): stays locked at state 5.
+    assert_ne!(phy_operation, 3);
+    assert_eq!(next_phy_operation_1_state(global_state), 5);
 }

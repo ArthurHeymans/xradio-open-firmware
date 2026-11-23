@@ -211,7 +211,7 @@ pub fn enter_mac_fatal_quiescence(event: MacEvent, saved_scheduler_word: Schedul
             let index = trace_count.wrapping_sub(back) & 0x1f;
             read_u32(0xfff0_3714 + index as usize * 4)
         };
-        crate::hif::publish_mac_fatal_exception([
+        crate::hif::publish_mac_fatal_exception(&[
             // `trace_mac_event()` commits the raw event before dispatch. Keep
             // the preceding event sequence inside the driver's bounded trace
             // prefix: the fatal often arrives after the owning slot has
@@ -517,6 +517,17 @@ pub fn dispatch_phy_command_2() -> u8 {
     global_state.get()
 }
 
+/// Next `(global_state, phy_operation)` for command 1 (`pac_phy_start_op`):
+/// enter state 3 unless a TX PHY transition is already in flight (`4`, waiting
+/// for command 3 on TX completion) or already locked (`5`).
+pub(crate) const fn next_phy_operation_1_state(global_state: u8) -> u8 {
+    if matches!(global_state, 4 | 5) {
+        global_state
+    } else {
+        3
+    }
+}
+
 /// Command-1 path through `pac_phy_start_op` (`0x7f10`). Vendor TX scheduling
 /// executes this before every queue/pipe pass so the pipe-start event can
 /// enter command 2 and program the TX PHY.
@@ -526,10 +537,9 @@ pub fn dispatch_phy_command_2() -> u8 {
 #[cfg(target_arch = "arm")]
 pub fn start_phy_operation_1() {
     let global_state = &crate::phy::state().retained_state;
-    if global_state.get() != 5 {
-        global_state.set(3);
-    }
-    SEQUENCING.phy_operation.set(global_state.get());
+    let next = next_phy_operation_1_state(global_state.get());
+    global_state.set(next);
+    SEQUENCING.phy_operation.set(next);
     // The vendor also starts a 10 s PHY operation timeout here. Nothing in
     // this firmware handles its expiry, and timer 1 wakes the main loop.
 }

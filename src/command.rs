@@ -7,8 +7,7 @@
 use crate::configuration::Configuration;
 use crate::hif::ReceivedRequest;
 use crate::join;
-use crate::packet_ram;
-use crate::platform::{self, program_station_address};
+use crate::platform::program_station_address;
 use crate::rate_policy;
 use crate::scan;
 use crate::tx;
@@ -54,18 +53,8 @@ fn service_management_request(
     };
     match tx::service_host_management_tx(events, crypto, Some((request, if_id, owner)), 0) {
         tx::HostManagementTxReport::Published { .. } => {
-            *publish_response = true;
-            let mac = |offset| crate::mmio::MAC.read32(platform::mac_register(offset));
-            let (edca, quantum0, quantum1) = (mac(0x0e64), mac(0x0e70), mac(0x0e74));
-            let byte = |address| crate::mmio::mac_objects(address).read8(address);
-            let metadata = byte(packet_ram::interface_metadata());
-            let secondary = byte(packet_ram::duration_word(0));
-            let event_id = 0x5852_0000 | (edca & 0xffff);
-            let data = (quantum0 & 0xff)
-                | ((quantum1 & 0xff) << 8)
-                | (u32::from(metadata) << 16)
-                | (u32::from(secondary) << 24);
-            encode_debug_event(event_id, data, output).ok_or(crate::wsm::Error::Truncated)
+            *publish_response = false;
+            Ok(0)
         }
         tx::HostManagementTxReport::Failed { packet_id, .. } => {
             encode_tx_confirm(format, packet_id, STATUS_FAILURE, 0, 0, output)
@@ -201,26 +190,30 @@ fn waits_for_drain(firmware: &crate::firmware::Firmware, request: &ReceivedReque
     }
 }
 
-/// Service at most one host request from the command lane.
+/// Service host requests from the command lane: at most one control/management
+/// command per pass, or up to four consecutive ordinary data TX admissions so
+/// uplink bursts fill A-MPDUs quickly without starving other lanes.
 ///
 /// The caller must not re-enter this lane before the call returns.
 pub fn service_one(firmware: &mut crate::firmware::Firmware) {
-    // A held request bypasses poll_request's response-storage check. Leave
-    // its owner in place until both queue space and a reply buffer are free.
-    if !firmware.transport.output_available() {
-        return;
-    }
-    let now = crate::platform::timer_now();
-    let Some((request, since)) = firmware.held_request.take().or_else(|| {
-        firmware
-            .transport
-            .poll_request()
-            .map(|request| (request, now))
-    }) else {
-        return;
-    };
-    let key_status =
-        if let Some(change) = key_change::KeyChange::parse(request.id, request.buffer.payload()) {
+    for _ in 0..4 {
+        // A held request bypasses poll_request's response-storage check. Leave
+        // its owner in place until both queue space and a reply buffer are free.
+        if !firmware.transport.output_available() {
+            return;
+        }
+        let now = crate::platform::timer_now();
+        let Some((request, since)) = firmware.held_request.take().or_else(|| {
+            firmware
+                .transport
+                .poll_request()
+                .map(|request| (request, now))
+        }) else {
+            return;
+        };
+        let key_status = if let Some(change) =
+            key_change::KeyChange::parse(request.id, request.buffer.payload())
+        {
             // Confirming owners cannot emit again. RX jobs do not hold this gate:
             // their captured epochs already prevent publication after revocation.
             let quiet = firmware.host_tx_driver.key_change_drained()
@@ -239,15 +232,19 @@ pub fn service_one(firmware: &mut crate::firmware::Firmware) {
             }
             None
         };
-    dispatch_single_request(firmware, request, key_status);
+        if !dispatch_single_request(firmware, request, key_status) {
+            return;
+        }
+    }
 }
 
 /// Dispatch one request, transferring or returning its buffer exactly once.
+/// Returns `true` when an ordinary host data TX request was admitted.
 fn dispatch_single_request(
     firmware: &mut crate::firmware::Firmware,
     request: ReceivedRequest,
     key_status: Option<u32>,
-) {
+) -> bool {
     let crate::firmware::Firmware {
         transport,
         tx_engine: events,
@@ -265,6 +262,7 @@ fn dispatch_single_request(
     } = firmware;
     let output: &mut [u8] = &mut response_scratch[..];
     let mut publish_response = true;
+    let mut admitted_data_tx = false;
     let confirm_format = configuration.tx_confirm_format();
     let request_id = request.id;
     // The host driver's only interface.
@@ -477,6 +475,7 @@ fn dispatch_single_request(
                         // Its PM bit is clear: the AP takes us for awake.
                         power_save.on_traffic(crate::platform::timer_now());
                         publish_response = false;
+                        admitted_data_tx = true;
                         Ok(0)
                     } else {
                         encode_tx_confirm(confirm_format, packet_id, STATUS_FAILURE, 0, 0, output)
@@ -558,8 +557,11 @@ fn dispatch_single_request(
                         events.ba.link(request_link_id).reset();
                         radio.end_peer_block_ack(previous);
                     }
-                    vif::map_link(request_if_id, request_link_id, station);
-                    0
+                    if vif::map_link(request_if_id, request_link_id, station) {
+                        0
+                    } else {
+                        STATUS_FAILURE
+                    }
                 });
                 status_response(status, output)
             }
@@ -590,4 +592,5 @@ fn dispatch_single_request(
     if let Some(buffer) = request_buffer {
         transport.release_request(buffer.into_release());
     }
+    admitted_data_tx
 }

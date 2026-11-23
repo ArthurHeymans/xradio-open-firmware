@@ -25,7 +25,6 @@ pub struct PublishedProbePublication {
     pub context: ContextId,
     pub pipe: u8,
     pub slot: u8,
-    pub checksum: u32,
 }
 
 /// Software-owned pipe reservation with a fully written command list.
@@ -38,7 +37,6 @@ pub struct PreparedProbePublication {
     pub(crate) pipe: u8,
     pub(crate) slot: u8,
     pub(crate) original_slot: SlotImage,
-    pub(crate) checksum: u32,
     pub(crate) start_phy: bool,
 }
 
@@ -65,7 +63,6 @@ impl PreparedProbePublication {
             context: self.context,
             pipe: self.pipe,
             slot: self.slot,
-            checksum: self.checksum,
         };
 
         if !backend.register_publication(BatchPosition::Only, self.context, self.pipe, self.slot) {
@@ -103,14 +100,14 @@ impl PreparedProbePublication {
     }
 
     /// Cancels a reservation that has not been transferred to hardware.
-    pub fn cancel(self) -> Result<u32, ProbeBuildError> {
+    pub fn cancel(self) -> Result<(), ProbeBuildError> {
         let slot = pipes().pipe(self.pipe).slot(self.slot);
         if slot.frame.get() != Some(self.context) {
             return Err(ProbeBuildError::PipeSlotOwnershipMismatch);
         }
         slot.restore(self.original_slot);
         contexts().free(self.context);
-        Ok(self.checksum)
+        Ok(())
     }
 }
 
@@ -134,10 +131,6 @@ pub fn prepare_probe_context(
     let context = id.get();
     let frame = TxFrameAddress::new(context.frame.get());
     copy_to_packet_ram(frame.raw(), probe.bytes());
-    if !packet_ram_matches(frame.raw(), probe.bytes()) {
-        contexts.free(id);
-        return Err(ProbeBuildError::PacketRamMismatch);
-    }
     let if_id = if_id.min(2);
     for word in 0..3 {
         let Some(value) = crate::vif::own_mac_word(if_id, word) else {
@@ -236,20 +229,16 @@ pub(crate) fn prepare_context_publication(
     write_u32(command.word_unchecked(0) as usize, 0);
     write_u32(command.word_unchecked(1) as usize, 0);
     write_u32(command.word_unchecked(2) as usize, 0xdc00_0000);
-    let checksum = match emit_descriptor(context, command.word_unchecked(3)) {
-        Ok(checksum) => checksum,
-        Err(error) => {
-            record.slot(slot).restore(original_slot);
-            contexts().free(id);
-            return Err(error);
-        }
-    };
+    if let Err(error) = emit_descriptor(context, command.word_unchecked(3)) {
+        record.slot(slot).restore(original_slot);
+        contexts().free(id);
+        return Err(error);
+    }
     Ok(PreparedProbePublication {
         context: id,
         pipe,
         slot,
         original_slot,
-        checksum,
         start_phy: true,
     })
 }
@@ -259,12 +248,7 @@ pub(crate) fn prepare_context_publication(
 fn load_host_frame(id: ContextId, frame: &[u8]) -> Result<(), ProbeBuildError> {
     let address = id.get().frame.get();
     copy_to_packet_ram(address, frame);
-    if packet_ram_matches(address, frame) {
-        Ok(())
-    } else {
-        contexts().free(id);
-        Err(ProbeBuildError::PacketRamMismatch)
-    }
+    Ok(())
 }
 
 /// Load a host frame and, if it is protected, seal it in place: the engine
@@ -311,7 +295,7 @@ fn apply_host_request(context: &TxContext, request: &crate::wsm::TxRequest<'_>, 
     // These frames use an internal context rather than the WSM class-0 pool;
     // link slot 1 is the validated internal slot for them.
     context.host_link.set(1);
-    if request.max_tx_rate < 22 {
+    if request.max_tx_rate < 22 && request.max_tx_rate != 4 && request.max_tx_rate != 5 {
         context.tx_rate.set(request.max_tx_rate);
     }
     if request.frame.get(4).is_some_and(|octet| octet & 1 != 0) {
@@ -451,7 +435,6 @@ pub(crate) struct ActiveProbeRuntime {
     pub(crate) opportunity: Option<crate::scan::ProbeOpportunity>,
     pub(crate) host_published: Option<PublishedProbePublication>,
     pub(crate) host_owner: ManagementOwner,
-    pub(crate) host_rate: u8,
     pub(crate) completed_count: u32,
     pub(crate) diagnostic: u16,
 }
@@ -465,7 +448,6 @@ impl ActiveProbeRuntime {
             opportunity: None,
             host_published: None,
             host_owner: ManagementOwner::BlockAck,
-            host_rate: 0,
             completed_count: 0,
             diagnostic: 0,
         }
@@ -623,7 +605,7 @@ pub fn service_host_management_tx(
         return HostManagementTxReport::Completed {
             owner: runtime.host_owner,
             status,
-            tx_rate: runtime.host_rate,
+            tx_rate: completion.tx_rate,
             ack_failures: completion.ack_failures,
         };
     }
@@ -666,7 +648,6 @@ pub fn service_host_management_tx(
     };
     runtime.host_published = Some(published);
     runtime.host_owner = owner;
-    runtime.host_rate = request.max_tx_rate;
     HostManagementTxReport::Published {
         packet_id: request.packet_id,
     }

@@ -145,14 +145,18 @@ xr819_exception_common:
     cmp r0, #4
     subeq r8, r6, #8
     beq 2f
+    cmp r0, #3
+    cmpne r0, #7
+    subeq r8, r6, #4
+    beq 2f
     tst r7, #32
     subne r8, r6, #2
     subeq r8, r6, #4
 2:
     str r8, [r1, #76]
-    mrc p15, 0, r8, c5, c0, 0
+    // ARM966E-S has no MMU/MPU and no CP15 c5/c6 fault status/address registers.
+    mov r8, #0
     str r8, [r1, #80]
-    mrc p15, 0, r8, c6, c0, 0
     str r8, [r1, #84]
 
     ldr r8, =0x58434651
@@ -202,7 +206,7 @@ fn main() -> ! {
     debug_stop(5, 0x5354_4705);
     register_post_activation_interrupts();
     let crypto = unsafe { CRYPTO.take() };
-    // SAFETY: HIF output buffer 0 carries nothing before the transport starts.
+    // SAFETY: HIF input buffer 0 carries nothing before the transport starts.
     #[cfg(target_arch = "arm")]
     unsafe {
         crypto.run_self_test();

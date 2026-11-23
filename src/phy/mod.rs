@@ -50,10 +50,11 @@ pub struct PhyState {
     pub retained_state: Cell<u8>,
     pub state_scale: Cell<i32>,
     pub threshold: Cell<i16>,
-    /// The PLL divider last programmed (integer, fractional) and its channel.
+    /// The PLL divider last programmed (integer, fractional), its channel, and profile.
     pub pll_integer: Cell<u32>,
     pub pll_fractional: Cell<u32>,
     pub pll_channel: Cell<u16>,
+    pub pll_profile: Cell<u8>,
     /// The channel's TX power limits (vendor 0x040099d4/0x040099d6), for
     /// the low and high rates.
     pub power_limit_low_rate: Cell<i16>,
@@ -93,6 +94,7 @@ impl PhyState {
             pll_integer: Cell::new(0),
             pll_fractional: Cell::new(0),
             pll_channel: Cell::new(0),
+            pll_profile: Cell::new(0),
             power_limit_low_rate: Cell::new(0),
             power_limit_high_rate: Cell::new(0),
             tx_power_tenths_dbm: Cell::new(None),
@@ -128,10 +130,13 @@ impl PhyState {
         self.pll_integer.set(startup.pll_integer.get());
         self.pll_fractional.set(startup.pll_fractional.get());
         self.pll_channel.set(startup.pll_channel.get());
+        self.pll_profile.set(startup.pll_profile.get());
         self.power_limit_low_rate
             .set(startup.power_limit_low_rate.get());
         self.power_limit_high_rate
             .set(startup.power_limit_high_rate.get());
+        self.tx_power_tenths_dbm
+            .set(startup.tx_power_tenths_dbm.get());
     }
 }
 
@@ -161,6 +166,7 @@ pub fn calibrate(sdd: &[u8]) {
     if let Some(reference) = element(0xc5).and_then(|data| <[u8; 2]>::try_from(data).ok()) {
         phy.reference_khz
             .set(u32::from(u16::from_le_bytes(reference)));
+        phy.pll_channel.set(0);
     }
     // Parameter-zero temperature fallback.
     if let Some([a, b, c, d, ..]) = element(0x46) {
@@ -231,6 +237,12 @@ fn write_u32(address: usize, value: u32) {
 fn delay_units(units: u32) {
     let iterations = units.saturating_mul(0x22);
     for _ in 0..iterations {
+        #[cfg(target_arch = "arm")]
+        unsafe {
+            // `core::hint::spin_loop()` is a no-op on ARMv5 and may be elided.
+            core::arch::asm!("nop", options(nomem, nostack));
+        }
+        #[cfg(not(target_arch = "arm"))]
         core::hint::spin_loop();
     }
 }
@@ -652,6 +664,29 @@ pub fn initialize_mac_software_state() {
     phy.temperature_offset.set(offset as i16);
 }
 
+struct AgcTableCache {
+    correction: Cell<Option<i16>>,
+    boundary: Cell<u8>,
+    table: [Cell<u32>; 80],
+}
+
+static AGC_TABLE_CACHE: Global<AgcTableCache> = Global::new(AgcTableCache {
+    correction: Cell::new(None),
+    boundary: Cell::new(80),
+    table: [const { Cell::new(0) }; 80],
+});
+
+#[inline(never)]
+fn rebuild_agc_table(correction: i16) {
+    let mut table = [0_u32; 80];
+    build_rate_table(&MODE0_CALIBRATION_ANCHORS, correction, &mut table);
+    for (dst, &src) in AGC_TABLE_CACHE.table.iter().zip(&table) {
+        dst.set(src);
+    }
+    AGC_TABLE_CACHE.boundary.set(rate_table_boundary(&table));
+    AGC_TABLE_CACHE.correction.set(Some(correction));
+}
+
 /// Hardware-producing portion of vendor `0x171ce -> 0x17008` for mode zero.
 ///
 /// Packet DMA, interrupt routing, and callback-table entries must already be
@@ -660,10 +695,11 @@ pub fn initialize_mac_software_state() {
 /// stubs.
 fn build_mode0_gain_tables() {
     let correction = self::calibration().profiles[0].agc_correction;
-    let mut table = [0; 80];
-    build_rate_table(&MODE0_CALIBRATION_ANCHORS, correction, &mut table);
-    for (index, value) in table.iter().copied().enumerate() {
-        reg_write(0x0ab8_0800 + index * 4, value);
+    if AGC_TABLE_CACHE.correction.get() != Some(correction) {
+        rebuild_agc_table(correction);
+    }
+    for (index, cell) in AGC_TABLE_CACHE.table.iter().enumerate() {
+        reg_write(0x0ab8_0800 + index * 4, cell.get());
     }
 
     apply_register_list(MODE0_INITIALIZATION_LIST);
@@ -671,12 +707,12 @@ fn build_mode0_gain_tables() {
     let control = reg_read(0x0ab8_0400);
     reg_write(
         0x0ab8_0400,
-        (control & 0xffff_80ff) | (table[0] & 0x0000_7f00),
+        (control & 0xffff_80ff) | (AGC_TABLE_CACHE.table[0].get() & 0x0000_7f00),
     );
     let boundary = reg_read(0x0ab8_0410);
     reg_write(
         0x0ab8_0410,
-        (boundary & 0xffff_ff80) | u32::from(rate_table_boundary(&table)),
+        (boundary & 0xffff_ff80) | u32::from(AGC_TABLE_CACHE.boundary.get()),
     );
 }
 
